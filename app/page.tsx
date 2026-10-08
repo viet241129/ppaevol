@@ -159,16 +159,28 @@ export default function Dashboard() {
     }
   }, [supabase])
 
+  const channelRef = React.useRef<any>(null)
+
   useEffect(() => {
     fetchUserAndData()
-    const channel = supabase
-      .channel('public-updates')
+    const channel = supabase.channel('public-updates')
+    
+    channel
       .on('postgres_changes', { event: '*', schema: 'public' }, () => {
         fetchUserAndData()
       })
+      .on('broadcast', { event: 'ping' }, (payload) => {
+        if (payload.payload?.sender_id !== user?.id) {
+          setPinged(true)
+          setTimeout(() => setPinged(false), 2000)
+        }
+      })
       .subscribe()
+      
+    channelRef.current = channel
+
     return () => { supabase.removeChannel(channel) }
-  }, [fetchUserAndData, supabase])
+  }, [fetchUserAndData, supabase, user])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -379,9 +391,18 @@ export default function Dashboard() {
     }
   }
 
-  const handlePing = () => {
+  const handlePing = async () => {
+    if (!user) return
     setPinged(true)
     setTimeout(() => setPinged(false), 2000)
+
+    if (channelRef.current) {
+      await channelRef.current.send({
+        type: 'broadcast',
+        event: 'ping',
+        payload: { sender_id: user.id }
+      })
+    }
   }
 
   const myWishlist = wishlistData.filter(w => user && w.user_id === user.id)
