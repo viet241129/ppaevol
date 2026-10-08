@@ -1,13 +1,22 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function POST(req: Request) {
   try {
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+    if (!serviceKey || !url) {
+      return NextResponse.json(
+        { error: "Chưa cấu hình Supabase Service Role Key trên máy chủ" }, 
+        { status: 500 }
+      );
+    }
+
+    const supabaseAdmin = createClient(url, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
+
     const { email, pin, newPassword } = await req.json();
 
     if (!email || !pin || !newPassword) {
@@ -18,33 +27,35 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Mã xác nhận không đúng" }, { status: 403 });
     }
 
-    // List all users to find the matching email
-    const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+    const { data, error: listErr } = await supabaseAdmin.auth.admin.listUsers();
     
-    if (listError) {
-      console.error("Lỗi lấy danh sách user:", listError);
-      return NextResponse.json({ error: "Lỗi hệ thống khi tìm kiếm người dùng" }, { status: 500 });
+    if (listErr) {
+      return NextResponse.json(
+        { error: "Lỗi đọc danh sách user: " + listErr.message }, 
+        { status: 500 }
+      );
     }
 
-    const targetUser = users?.find(u => u.email?.toLowerCase() === email.trim().toLowerCase());
+    const user = data.users.find(u => u.email?.toLowerCase() === email.trim().toLowerCase());
     
-    if (!targetUser) {
+    if (!user) {
       return NextResponse.json({ error: "Không tìm thấy tài khoản với email này" }, { status: 404 });
     }
 
-    // Update password
-    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(targetUser.id, { 
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(user.id, { 
       password: newPassword 
     });
 
-    if (updateError) {
-      console.error("Lỗi cập nhật mật khẩu:", updateError);
-      return NextResponse.json({ error: "Lỗi khi cập nhật mật khẩu" }, { status: 500 });
+    if (updateErr) {
+      return NextResponse.json({ error: updateErr.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, message: "Đổi mật khẩu thành công" });
+    return NextResponse.json({ success: true, message: "Đổi mật khẩu thành công!" });
   } catch (error: any) {
     console.error('Lỗi API reset-password:', error);
-    return NextResponse.json({ error: "Đã xảy ra lỗi không xác định" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Lỗi hệ thống không xác định: " + (error.message || "") }, 
+      { status: 500 }
+    );
   }
 }

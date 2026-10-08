@@ -53,10 +53,16 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, pin, newPassword })
       })
-      const data = await res.json()
+      
+      let data;
+      try {
+        data = await res.json();
+      } catch (e) {
+        throw new Error(`Lỗi máy chủ (Mã trạng thái: ${res.status})`);
+      }
 
       if (!res.ok) {
-        throw new Error(data.error || 'Đã xảy ra lỗi')
+        throw new Error(data?.error || 'Có lỗi xảy ra');
       }
 
       setResetSuccess(data.message)
