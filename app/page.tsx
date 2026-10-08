@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { 
   MapPin, Heart, Smile, CalendarDays, 
-  Wallet, CheckSquare, Gift, LogOut, Plus, Trash2, Check, X, ExternalLink, Navigation
+  Wallet, CheckSquare, Gift, LogOut, Plus, Trash2, Check, X, ExternalLink, Navigation, BellRing
 } from 'lucide-react'
 
 const MOODS = [
@@ -25,6 +25,7 @@ export default function Dashboard() {
   const [user, setUser] = useState<any>(null)
   const [role, setRole] = useState<'boyfriend' | 'girlfriend' | null>(null)
   const [partnerRole, setPartnerRole] = useState<'boyfriend' | 'girlfriend' | null>(null)
+  const [partnerId, setPartnerId] = useState<string | null>(null)
 
   // Mood
   const [mood, setMood] = useState('😊')
@@ -86,6 +87,7 @@ export default function Dashboard() {
           setPartnerRole(myProfile.role === 'boyfriend' ? 'girlfriend' : 'boyfriend')
         }
         if (otherProfile) {
+          setPartnerId(otherProfile.id)
           setPartnerMood(otherProfile.mood || '😊')
           setPartnerStatus(otherProfile.status_message || 'Bình thường')
           setPartnerLat(otherProfile.latitude)
@@ -181,6 +183,62 @@ export default function Dashboard() {
 
     return () => { supabase.removeChannel(channel) }
   }, [fetchUserAndData, supabase, user])
+
+  function urlBase64ToUint8Array(base64String: string) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4)
+    const base64 = (base64String + padding)
+      .replace(/\-/g, '+')
+      .replace(/_/g, '/')
+    const rawData = window.atob(base64)
+    const outputArray = new Uint8Array(rawData.length)
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i)
+    }
+    return outputArray
+  }
+
+  const subscribeToPush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      alert('Trình duyệt không hỗ trợ Web Push Notification.')
+      return
+    }
+
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        alert('Bạn đã từ chối cấp quyền thông báo.')
+        return
+      }
+
+      const registration = await navigator.serviceWorker.register('/sw.js')
+      await navigator.serviceWorker.ready
+
+      const publicVapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+      if (!publicVapidKey) {
+        console.error('Thiếu NEXT_PUBLIC_VAPID_PUBLIC_KEY')
+        return
+      }
+
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicVapidKey)
+      })
+
+      const { error } = await supabase.from('push_subscriptions').insert([{
+        user_id: user.id,
+        subscription: subscription.toJSON()
+      }])
+
+      if (error) {
+        console.error('Lỗi lưu subscription:', error)
+        alert('Không thể lưu đăng ký thông báo.')
+      } else {
+        alert('Đăng ký nhận thông báo thành công!')
+      }
+    } catch (err) {
+      console.error('Lỗi đăng ký Push:', err)
+    }
+  }
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -403,6 +461,21 @@ export default function Dashboard() {
         payload: { sender_id: user.id }
       })
     }
+
+    if (partnerId) {
+      try {
+        await fetch('/api/send-ping-push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            partner_id: partnerId, 
+            sender_name: role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái' 
+          })
+        })
+      } catch (err) {
+        console.error('Lỗi gọi API send-ping-push:', err)
+      }
+    }
   }
 
   const myWishlist = wishlistData.filter(w => user && w.user_id === user.id)
@@ -424,9 +497,14 @@ export default function Dashboard() {
             {role === 'boyfriend' ? 'Bạn Trai' : role === 'girlfriend' ? 'Bạn Gái' : 'Đang tải...'}
           </p>
         </div>
-        <button onClick={handleLogout} className="rounded-full bg-white p-2 text-gray-400 shadow-sm transition-colors hover:text-red-500">
-          <LogOut size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={subscribeToPush} className="rounded-full bg-white p-2 text-pink-400 shadow-sm transition-colors hover:text-pink-600" title="Bật thông báo">
+            <BellRing size={20} />
+          </button>
+          <button onClick={handleLogout} className="rounded-full bg-white p-2 text-gray-400 shadow-sm transition-colors hover:text-red-500" title="Đăng xuất">
+            <LogOut size={20} />
+          </button>
+        </div>
       </header>
 
       {/* GRID */}
