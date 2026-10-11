@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { 
   MapPin, Heart, Smile, CalendarDays, 
   Wallet, CheckSquare, Gift, LogOut, Plus, Trash2, Check, X, ExternalLink, Navigation, BellRing,
-  Info, Camera, Clock, Eye, Sparkles
+  Info, Camera, Clock, Eye, Sparkles, Images
 } from 'lucide-react'
 
 const MOODS = [
@@ -99,6 +99,8 @@ export default function Dashboard() {
   const [locketPhotos, setLocketPhotos] = useState<any[]>([])
   const [isUploadingLocket, setIsUploadingLocket] = useState(false)
   const [viewingPhoto, setViewingPhoto] = useState<any | null>(null)
+  const [showAlbumModal, setShowAlbumModal] = useState(false)
+  const [albumFilter, setAlbumFilter] = useState<'all' | 'boyfriend' | 'girlfriend'>('all')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Activity Logs & Info Modal
@@ -226,7 +228,7 @@ export default function Dashboard() {
 
   const fetchLocketPhotos = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('locket_photos').select('*').order('created_at', { ascending: false }).limit(20)
+      const { data, error } = await supabase.from('locket_photos').select('*').order('created_at', { ascending: false }).limit(100)
       if (error) console.error('❌ Lỗi lấy Locket:', error)
       else if (data) setLocketPhotos(data)
     } catch (err) {
@@ -355,14 +357,12 @@ export default function Dashboard() {
     const senderName = role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
     const nowIso = new Date().toISOString()
     try {
-      // Cố gắng cập nhật có kèm updated_at
       let { error } = await supabase.from('profiles').update({ 
         mood: newMoodIcon,
         status_message: newStatusMsg,
         updated_at: nowIso
       }).eq('id', user.id)
       
-      // Nếu bảng profiles chưa có cột updated_at, fallback update không có cột này
       if (error && error.message?.includes('updated_at')) {
         const res = await supabase.from('profiles').update({ 
           mood: newMoodIcon,
@@ -625,7 +625,6 @@ export default function Dashboard() {
     try {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
       
-      // 1. Tìm các bản ghi locket_photos cũ hơn 30 ngày
       const { data: oldPhotos, error: fetchErr } = await supabase
         .from('locket_photos')
         .select('id, photo_url')
@@ -633,7 +632,6 @@ export default function Dashboard() {
 
       if (fetchErr || !oldPhotos || oldPhotos.length === 0) return
 
-      // 2. Tìm và xóa file vật lý trên Supabase Storage bucket 'locket'
       const filePathsToRemove: string[] = []
       oldPhotos.forEach(p => {
         if (p.photo_url && p.photo_url.includes('/locket/')) {
@@ -649,22 +647,13 @@ export default function Dashboard() {
         try {
           await supabase.storage.from('locket').remove(filePathsToRemove)
         } catch (storageErr) {
-          console.error('Lỗi xóa file vật lý trên storage:', storageErr)
+          console.error('Lỗi xóa storage:', storageErr)
         }
       }
 
-      // 3. Xóa các bản ghi cũ khỏi bảng locket_photos
       const oldIds = oldPhotos.map(p => p.id)
-      const { error: deleteErr } = await supabase
-        .from('locket_photos')
-        .delete()
-        .in('id', oldIds)
-
-      if (deleteErr) {
-        console.error('Lỗi xóa bản ghi locket cũ:', deleteErr)
-      } else {
-        console.log(`Đã tự động dọn dẹp ${oldPhotos.length} ảnh Locket cũ hơn 30 ngày.`)
-      }
+      await supabase.from('locket_photos').delete().in('id', oldIds)
+      console.log(`Đã dọn dẹp ${oldPhotos.length} ảnh Locket cũ hơn 30 ngày.`)
     } catch (err) {
       console.error('Ngoại lệ khi dọn dẹp ảnh cũ:', err)
     }
@@ -682,7 +671,6 @@ export default function Dashboard() {
       reader.onload = async (event) => {
         const img = new window.Image()
         img.onload = async () => {
-          // Nén ảnh qua Canvas (tối đa 900px, chất lượng 0.75) để tối ưu dung lượng và tốc độ
           const canvas = document.createElement('canvas')
           const maxDim = 900
           let width = img.width
@@ -704,7 +692,6 @@ export default function Dashboard() {
 
           let finalUrl = compressedDataUrl
 
-          // Thử upload lên Supabase Storage bucket 'locket'
           try {
             const fileName = `${user.id}-${Date.now()}.jpg`
             const blob = await (await fetch(compressedDataUrl)).blob()
@@ -722,7 +709,6 @@ export default function Dashboard() {
             console.log('Storage fallback to dataURL:', storageErr)
           }
 
-          // Lưu bản ghi vào bảng locket_photos
           const { error: dbErr } = await supabase.from('locket_photos').insert([{
             user_id: user.id,
             user_role: role,
@@ -734,7 +720,6 @@ export default function Dashboard() {
             console.error('❌ Lỗi lưu locket photo:', dbErr)
             alert('Lỗi lưu ảnh: ' + dbErr.message)
           } else {
-            // Tự động dọn dẹp ảnh cũ hơn 30 ngày
             await cleanupOldLocketPhotos()
             await fetchLocketPhotos()
             await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi một khoảnh khắc ảnh mới`)
@@ -750,6 +735,43 @@ export default function Dashboard() {
       console.error('Lỗi upload ảnh:', err)
       alert('Lỗi upload: ' + err.message)
       setIsUploadingLocket(false)
+    }
+  }
+
+  // --- XÓA ẢNH LOCKET ---
+  const deleteLocketPhoto = async (photo: any) => {
+    if (!photo || !confirm('Bạn có chắc chắn muốn xóa ảnh khoảnh khắc này không?')) return
+    const senderName = role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
+    try {
+      // 1. Xóa file trên Storage nếu lưu dưới dạng file url
+      if (photo.photo_url && photo.photo_url.includes('/locket/')) {
+        const parts = photo.photo_url.split('/locket/')
+        if (parts.length > 1) {
+          const rawName = parts[1].split('?')[0]
+          if (rawName) {
+            try {
+              await supabase.storage.from('locket').remove([decodeURIComponent(rawName)])
+            } catch (storageErr) {
+              console.error('Lỗi xóa file trên storage:', storageErr)
+            }
+          }
+        }
+      }
+
+      // 2. Xóa bản ghi trong bảng locket_photos
+      const { error } = await supabase.from('locket_photos').delete().eq('id', photo.id)
+      if (error) {
+        console.error('Lỗi xóa locket photo:', error)
+        alert('Không thể xóa ảnh: ' + error.message)
+      } else {
+        if (viewingPhoto && viewingPhoto.id === photo.id) {
+          setViewingPhoto(null)
+        }
+        await fetchLocketPhotos()
+        await logActivity('locket', 'delete', `${senderName} đã xóa một ảnh khoảnh khắc`)
+      }
+    } catch (err: any) {
+      console.error('Ngoại lệ khi xóa ảnh:', err)
     }
   }
 
@@ -786,8 +808,8 @@ export default function Dashboard() {
       case 'love_fund': return 'Quỹ tình yêu'
       case 'todos': return 'To-do chung'
       case 'wishlist': return 'Wishlist'
-      case 'locket': return 'Khoảnh khắc (Locket)'
-      default: return 'Tất cả hoạt động'
+      case 'locket': return 'Khoảnh khắc'
+      default: return 'Tất cả'
     }
   }
 
@@ -795,8 +817,15 @@ export default function Dashboard() {
   const partnerWishlistData = wishlistData.filter(w => user && w.user_id !== user.id)
   const latestLocketPhoto = locketPhotos.length > 0 ? locketPhotos[0] : null
 
+  // Bộ lọc ảnh cho Album Locket
+  const filteredAlbumPhotos = locketPhotos.filter(p => {
+    if (albumFilter === 'boyfriend') return p.user_role === 'boyfriend'
+    if (albumFilter === 'girlfriend') return p.user_role === 'girlfriend'
+    return true
+  })
+
   // Location logic
-  const mapLat = partnerLat || myLat || 21.028511 // Mặc định Hà Nội
+  const mapLat = partnerLat || myLat || 21.028511
   const mapLng = partnerLng || myLng || 105.804817
 
   const filteredLogs = logFilterModule === 'all' 
@@ -1024,7 +1053,7 @@ export default function Dashboard() {
           </form>
         </div>
 
-        {/* 6. MODULE MỚI: KHOẢNH KHẮC (LOCKET) */}
+        {/* 6. MODULE: KHOẢNH KHẮC (LOCKET) */}
         <div className="col-span-2 sm:col-span-1 flex flex-col justify-between rounded-3xl bg-amber-50 p-5 shadow-sm max-h-72 border border-amber-100 relative group">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
@@ -1032,12 +1061,19 @@ export default function Dashboard() {
               <button 
                 onClick={() => openActivityModal('locket')} 
                 className="text-amber-500 hover:text-amber-700 p-0.5 rounded-full" 
-                title="Lịch sử khoảnh khắc"
+                title="Lịch sử hoạt động Locket"
               >
                 <Info size={14} />
               </button>
             </div>
-            <div>
+            <div className="flex items-center gap-1.5">
+              <button 
+                onClick={() => setShowAlbumModal(true)} 
+                className="rounded-full bg-amber-100 p-1.5 text-amber-700 hover:bg-amber-200 transition-colors shadow-sm"
+                title="Album khoảnh khắc (Bộ sưu tập)"
+              >
+                <Images size={17} />
+              </button>
               <input 
                 type="file" 
                 accept="image/*" 
@@ -1050,9 +1086,9 @@ export default function Dashboard() {
                 onClick={() => fileInputRef.current?.click()} 
                 disabled={isUploadingLocket}
                 className="rounded-full bg-amber-200 p-1.5 text-amber-700 hover:bg-amber-300 transition-colors shadow-sm disabled:opacity-50"
-                title="Gửi ảnh mới"
+                title="Chụp / Gửi ảnh mới"
               >
-                <Camera size={18} />
+                <Camera size={17} />
               </button>
             </div>
           </div>
@@ -1067,8 +1103,21 @@ export default function Dashboard() {
                   alt="Khoảnh khắc" 
                   className="w-full h-full object-cover transition-transform group-hover/img:scale-105 duration-300" 
                 />
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center text-white">
-                  <Eye size={22} />
+                <div className="absolute inset-0 bg-black/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2.5 text-white">
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setViewingPhoto(latestLocketPhoto); }}
+                    className="p-1.5 rounded-full bg-white/20 hover:bg-white/40 backdrop-blur-sm transition-colors"
+                    title="Xem phóng to"
+                  >
+                    <Eye size={18} />
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); deleteLocketPhoto(latestLocketPhoto); }}
+                    className="p-1.5 rounded-full bg-red-500/80 hover:bg-red-600 backdrop-blur-sm transition-colors text-white"
+                    title="Xóa ảnh này"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             ) : (
@@ -1092,9 +1141,18 @@ export default function Dashboard() {
                 <span className="text-amber-800 font-bold truncate">
                   {latestLocketPhoto.user_role === 'boyfriend' ? '👦🏻 Bạn Trai' : latestLocketPhoto.user_role === 'girlfriend' ? '👧🏻 Bạn Gái' : 'Nửa kia'}
                 </span>
-                <span className="text-[10px] text-amber-600">
-                  Đăng lúc {format24h(latestLocketPhoto.created_at)}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-amber-600">
+                    Đăng lúc {format24h(latestLocketPhoto.created_at)}
+                  </span>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); deleteLocketPhoto(latestLocketPhoto); }} 
+                    className="text-amber-400 hover:text-red-500 p-0.5 rounded transition-colors" 
+                    title="Xóa ảnh này"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               </>
             ) : (
               <span className="text-[10px] text-amber-500">Gửi ảnh locket ngay</span>
@@ -1269,15 +1327,99 @@ export default function Dashboard() {
 
       </div>
 
+      {/* --- MODAL ALBUM LOCKET (LỊCH SỬ KHOẢNH KHẮC) --- */}
+      {showAlbumModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => setShowAlbumModal(false)}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
+              <div>
+                <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
+                  <Images size={20} className="text-amber-500" />
+                  Album Khoảnh khắc 📸
+                </h2>
+                <p className="text-[11px] text-gray-500">Các ảnh trong 30 ngày qua ({locketPhotos.length} ảnh)</p>
+              </div>
+              <button onClick={() => setShowAlbumModal(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                <X size={20}/>
+              </button>
+            </div>
+
+            {/* 3 Tab bộ lọc */}
+            <div className="flex gap-2 mb-3 text-xs">
+              <button 
+                onClick={() => setAlbumFilter('all')} 
+                className={`flex-1 py-1.5 rounded-xl text-center transition-colors ${albumFilter === 'all' ? 'bg-amber-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                Tất cả ({locketPhotos.length})
+              </button>
+              <button 
+                onClick={() => setAlbumFilter('boyfriend')} 
+                className={`flex-1 py-1.5 rounded-xl text-center transition-colors ${albumFilter === 'boyfriend' ? 'bg-blue-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                👦🏻 Bạn Trai
+              </button>
+              <button 
+                onClick={() => setAlbumFilter('girlfriend')} 
+                className={`flex-1 py-1.5 rounded-xl text-center transition-colors ${albumFilter === 'girlfriend' ? 'bg-pink-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                👧🏻 Bạn Gái
+              </button>
+            </div>
+
+            {/* Lưới ảnh 3 cột */}
+            <div className="flex-1 overflow-y-auto pr-1 hide-scrollbar">
+              {filteredAlbumPhotos.length > 0 ? (
+                <div className="grid grid-cols-3 gap-2.5">
+                  {filteredAlbumPhotos.map(photo => (
+                    <div 
+                      key={photo.id}
+                      onClick={() => setViewingPhoto(photo)}
+                      className="group relative aspect-square rounded-2xl overflow-hidden bg-gray-100 cursor-pointer shadow-sm border border-gray-100 hover:shadow-md transition-all"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img 
+                        src={photo.photo_url} 
+                        alt="Khoảnh khắc" 
+                        className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-300"
+                      />
+                      {/* Badge vai trò */}
+                      <div className="absolute top-1 left-1 bg-black/50 text-white text-[9px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+                        {photo.user_role === 'boyfriend' ? '👦🏻' : '👧🏻'}
+                      </div>
+                      {/* Thời gian */}
+                      <div className="absolute bottom-1 inset-x-1 bg-black/60 text-white text-[8px] text-center py-0.5 rounded backdrop-blur-sm font-medium truncate">
+                        {format24h(photo.created_at)} {new Date(photo.created_at).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
+                      </div>
+                      {/* Nút xóa nhanh khi hover */}
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); deleteLocketPhoto(photo); }}
+                        className="absolute top-1 right-1 p-1 rounded-full bg-red-500/80 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Xóa ảnh này"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-16 text-center text-gray-400 text-xs italic">
+                  Chưa có ảnh nào trong mục này.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* --- MODAL LỊCH SỬ HOẠT ĐỘNG (ACTIVITY LOGS) --- */}
       {showActivityModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl max-h-[85vh] flex flex-col">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => setShowActivityModal(false)}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
               <div>
                 <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                   <Clock size={18} className="text-pink-500" />
-                  {getModuleTitle(logFilterModule)}
+                  Lịch sử: {getModuleTitle(logFilterModule)}
                 </h2>
                 <p className="text-[11px] text-gray-500">Các hoạt động và thay đổi gần nhất</p>
               </div>
@@ -1286,19 +1428,19 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Filter Tabs */}
-            <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 hide-scrollbar text-xs">
+            {/* Filter Tabs linh hoạt, không bị che khuất hay cắt chữ */}
+            <div className="flex flex-wrap gap-1.5 mb-3 text-xs">
               <button 
                 onClick={() => setLogFilterModule('all')} 
-                className={`px-3 py-1 rounded-full whitespace-nowrap transition-colors ${logFilterModule === 'all' ? 'bg-pink-500 text-white font-bold' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                className={`px-3 py-1.5 rounded-xl transition-colors ${logFilterModule === 'all' ? 'bg-pink-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
                 Tất cả
               </button>
-              {['mood', 'location', 'locket', 'love_fund', 'todos', 'wishlist', 'special_dates'].map(mKey => (
+              {['mood', 'location', 'locket', 'love_fund', 'todos', 'wishlist', 'special_dates', 'ping'].map(mKey => (
                 <button 
                   key={mKey}
                   onClick={() => setLogFilterModule(mKey)} 
-                  className={`px-3 py-1 rounded-full whitespace-nowrap transition-colors ${logFilterModule === mKey ? 'bg-pink-500 text-white font-bold' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  className={`px-3 py-1.5 rounded-xl transition-colors ${logFilterModule === mKey ? 'bg-pink-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                 >
                   {getModuleTitle(mKey)}
                 </button>
@@ -1337,7 +1479,7 @@ export default function Dashboard() {
       {viewingPhoto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md" onClick={() => setViewingPhoto(null)}>
           <div className="relative max-w-sm w-full bg-white rounded-3xl overflow-hidden shadow-2xl p-4" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-3">
+            <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-100">
               <div>
                 <span className="text-xs font-bold text-gray-800">
                   {viewingPhoto.user_role === 'boyfriend' ? '👦🏻 Bạn Trai gửi' : '👧🏻 Bạn Gái gửi'}
@@ -1346,9 +1488,18 @@ export default function Dashboard() {
                   {formatDateTime24h(viewingPhoto.created_at)}
                 </p>
               </div>
-              <button onClick={() => setViewingPhoto(null)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full bg-gray-100">
-                <X size={18} />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button 
+                  onClick={() => deleteLocketPhoto(viewingPhoto)} 
+                  className="text-red-500 hover:text-red-700 p-1.5 rounded-full bg-red-50 hover:bg-red-100 transition-colors"
+                  title="Xóa ảnh này"
+                >
+                  <Trash2 size={18} />
+                </button>
+                <button onClick={() => setViewingPhoto(null)} className="text-gray-400 hover:text-gray-600 p-1.5 rounded-full bg-gray-100">
+                  <X size={18} />
+                </button>
+              </div>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img 
