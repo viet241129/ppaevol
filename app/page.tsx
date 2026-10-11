@@ -829,71 +829,92 @@ export default function Dashboard() {
     try {
       const img = new window.Image()
       img.onload = async () => {
-        const canvas = document.createElement('canvas')
-        const maxDim = 900
-        let width = img.width
-        let height = img.height
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width)
-            width = maxDim
-          } else {
-            width = Math.round((width * maxDim) / height)
-            height = maxDim
-          }
-        }
-        canvas.width = width
-        canvas.height = height
-        const ctx = canvas.getContext('2d')
-        ctx?.drawImage(img, 0, 0, width, height)
-        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75)
-
-        let finalUrl = compressedDataUrl
-
         try {
-          const fileName = `${user.id}-${Date.now()}.jpg`
-          const blob = await (await fetch(compressedDataUrl)).blob()
-          const { data: storageData, error: storageErr } = await supabase.storage.from('locket').upload(fileName, blob, {
-            contentType: 'image/jpeg',
-            upsert: true
-          })
-          if (!storageErr && storageData) {
-            const { data: pubData } = supabase.storage.from('locket').getPublicUrl(fileName)
-            if (pubData?.publicUrl) {
-              finalUrl = pubData.publicUrl
+          const canvas = document.createElement('canvas')
+          const maxDim = 900
+          let width = img.width
+          let height = img.height
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width)
+              width = maxDim
+            } else {
+              width = Math.round((width * maxDim) / height)
+              height = maxDim
             }
           }
-        } catch (storageErr) {
-          console.log('Storage fallback to dataURL:', storageErr)
-        }
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          ctx?.drawImage(img, 0, 0, width, height)
 
-        const { error: dbErr } = await supabase.from('locket_photos').insert([{
-          user_id: user.id,
-          user_role: role,
-          photo_url: finalUrl,
-          caption: finalCaption
-        }])
+          // Nén canvas sang blob trực tiếp để tối ưu bộ nhớ trên iOS Safari
+          const blobPromise = new Promise<Blob | null>((resolve) => {
+            canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.75)
+          })
+          const blob = await blobPromise
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75)
 
-        if (dbErr) {
-          console.error('❌ Lỗi lưu locket photo:', dbErr)
-          alert('Lỗi lưu ảnh: ' + dbErr.message)
-        } else {
-          setShowLocketPreviewModal(false)
-          setLocketPreviewUrl(null)
-          setLocketCaption('')
-          await cleanupOldLocketPhotos()
-          await fetchLocketPhotos()
+          let finalUrl = compressedDataUrl
 
-          if (finalCaption) {
-            await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi khoảnh khắc: ${finalCaption}`)
-            await logActivity('locket', 'create', `${senderName} đăng khoảnh khắc: "${finalCaption}"`)
-          } else {
-            await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi một khoảnh khắc ảnh mới`)
-            await logActivity('locket', 'create', `${senderName} đăng một khoảnh khắc ảnh mới`)
+          if (blob) {
+            try {
+              const fileName = `${user.id}-${Date.now()}.jpg`
+              const { data: storageData, error: storageErr } = await supabase.storage.from('locket').upload(fileName, blob, {
+                contentType: 'image/jpeg',
+                upsert: true
+              })
+              if (!storageErr && storageData) {
+                const { data: pubData } = supabase.storage.from('locket').getPublicUrl(fileName)
+                if (pubData?.publicUrl) {
+                  finalUrl = pubData.publicUrl
+                }
+              } else if (storageErr) {
+                console.warn('Storage upload error, fallback to dataURL:', storageErr)
+              }
+            } catch (storageErr) {
+              console.log('Storage fallback to dataURL:', storageErr)
+            }
           }
+
+          const { error: dbErr } = await supabase.from('locket_photos').insert([{
+            user_id: user.id,
+            user_role: role,
+            photo_url: finalUrl,
+            caption: finalCaption
+          }])
+
+          if (dbErr) {
+            console.error('❌ Lỗi lưu locket photo:', dbErr)
+            alert('Lỗi lưu ảnh: ' + dbErr.message)
+          } else {
+            setShowLocketPreviewModal(false)
+            setLocketPreviewUrl(null)
+            setLocketCaption('')
+            await cleanupOldLocketPhotos()
+            await fetchLocketPhotos()
+
+            if (finalCaption) {
+              await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi khoảnh khắc: ${finalCaption}`)
+              await logActivity('locket', 'create', `${senderName} đăng khoảnh khắc: "${finalCaption}"`)
+            } else {
+              await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi một khoảnh khắc ảnh mới`)
+              await logActivity('locket', 'create', `${senderName} đăng một khoảnh khắc ảnh mới`)
+            }
+          }
+        } catch (innerErr: any) {
+          console.error('Lỗi nén và lưu ảnh:', innerErr)
+          alert('Lỗi xử lý ảnh: ' + (innerErr?.message || 'Không xác định'))
+        } finally {
+          setIsUploadingLocket(false)
         }
-        setIsUploadingLocket(false)
       }
+
+      img.onerror = () => {
+        setIsUploadingLocket(false)
+        alert('Không thể đọc hoặc xử lý ảnh này. Vui lòng chọn lại ảnh khác.')
+      }
+
       img.src = locketPreviewUrl
     } catch (err: any) {
       console.error('Lỗi upload ảnh:', err)
@@ -1279,7 +1300,6 @@ export default function Dashboard() {
               <input 
                 type="file" 
                 accept="image/*" 
-                capture="environment"
                 ref={fileInputRef} 
                 onChange={handleFileSelect} 
                 className="hidden" 
