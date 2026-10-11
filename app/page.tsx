@@ -620,6 +620,56 @@ export default function Dashboard() {
     }
   }
 
+  // --- TỰ ĐỘNG DỌN DẸP ẢNH LOCKET CŨ HƠN 30 NGÀY ---
+  const cleanupOldLocketPhotos = async () => {
+    try {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      
+      // 1. Tìm các bản ghi locket_photos cũ hơn 30 ngày
+      const { data: oldPhotos, error: fetchErr } = await supabase
+        .from('locket_photos')
+        .select('id, photo_url')
+        .lt('created_at', thirtyDaysAgo)
+
+      if (fetchErr || !oldPhotos || oldPhotos.length === 0) return
+
+      // 2. Tìm và xóa file vật lý trên Supabase Storage bucket 'locket'
+      const filePathsToRemove: string[] = []
+      oldPhotos.forEach(p => {
+        if (p.photo_url && p.photo_url.includes('/locket/')) {
+          const parts = p.photo_url.split('/locket/')
+          if (parts.length > 1) {
+            const rawName = parts[1].split('?')[0]
+            if (rawName) filePathsToRemove.push(decodeURIComponent(rawName))
+          }
+        }
+      })
+
+      if (filePathsToRemove.length > 0) {
+        try {
+          await supabase.storage.from('locket').remove(filePathsToRemove)
+        } catch (storageErr) {
+          console.error('Lỗi xóa file vật lý trên storage:', storageErr)
+        }
+      }
+
+      // 3. Xóa các bản ghi cũ khỏi bảng locket_photos
+      const oldIds = oldPhotos.map(p => p.id)
+      const { error: deleteErr } = await supabase
+        .from('locket_photos')
+        .delete()
+        .in('id', oldIds)
+
+      if (deleteErr) {
+        console.error('Lỗi xóa bản ghi locket cũ:', deleteErr)
+      } else {
+        console.log(`Đã tự động dọn dẹp ${oldPhotos.length} ảnh Locket cũ hơn 30 ngày.`)
+      }
+    } catch (err) {
+      console.error('Ngoại lệ khi dọn dẹp ảnh cũ:', err)
+    }
+  }
+
   // --- LOCKET UPLOAD ---
   const handleUploadLocket = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -684,6 +734,8 @@ export default function Dashboard() {
             console.error('❌ Lỗi lưu locket photo:', dbErr)
             alert('Lỗi lưu ảnh: ' + dbErr.message)
           } else {
+            // Tự động dọn dẹp ảnh cũ hơn 30 ngày
+            await cleanupOldLocketPhotos()
             await fetchLocketPhotos()
             await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi một khoảnh khắc ảnh mới`)
             await logActivity('locket', 'create', `${senderName} đăng một khoảnh khắc ảnh mới`)
