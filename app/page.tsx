@@ -115,23 +115,55 @@ export default function Dashboard() {
   const [loveDuration, setLoveDuration] = useState<{
     days: number;
     time: string;
+    years: number;
+    months: number;
+    calendarDays: number;
   } | null>(null)
 
   useEffect(() => {
     const START_TIME = new Date('2022-09-23T20:00:00+07:00').getTime()
+    const startDate = new Date('2022-09-23T20:00:00+07:00')
+
     const updateCounter = () => {
-      const now = Date.now()
-      const diff = Math.max(0, now - START_TIME)
+      const now = new Date()
+      const diff = Math.max(0, now.getTime() - START_TIME)
       const totalSec = Math.floor(diff / 1000)
       const days = Math.floor(totalSec / 86400)
       const hours = String(Math.floor((totalSec % 86400) / 3600)).padStart(2, '0')
       const minutes = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0')
       const seconds = String(totalSec % 60).padStart(2, '0')
+
+      // Tính chính xác quy đổi theo lịch: Năm - Tháng - Ngày
+      let years = now.getFullYear() - startDate.getFullYear()
+      let months = now.getMonth() - startDate.getMonth()
+      let cDays = now.getDate() - startDate.getDate()
+
+      const startHms = startDate.getHours() * 3600 + startDate.getMinutes() * 60 + startDate.getSeconds()
+      const nowHms = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
+      if (nowHms < startHms) {
+        cDays -= 1
+      }
+
+      if (cDays < 0) {
+        const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0).getDate()
+        cDays += prevMonthLastDay
+        months -= 1
+      }
+
+      if (months < 0) {
+        months += 12
+        years -= 1
+      }
+
       setLoveDuration({
         days,
-        time: `${hours}:${minutes}:${seconds}`
+        time: `${hours}:${minutes}:${seconds}`,
+        years: Math.max(0, years),
+        months: Math.max(0, months),
+        calendarDays: Math.max(0, cDays)
       })
     }
+
     updateCounter()
     const interval = setInterval(updateCounter, 1000)
     return () => clearInterval(interval)
@@ -880,15 +912,29 @@ export default function Dashboard() {
             </span>
           </div>
 
-          {/* Love Counter Pill */}
+          {/* Love Counter Pills */}
           {loveDuration && (
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 border border-pink-200 shadow-sm backdrop-blur-md text-pink-600 text-xs font-semibold w-fit">
-              <span className="inline-block animate-pulse text-xs">💕</span>
-              <span className="whitespace-nowrap flex items-center gap-1 text-[11px] sm:text-xs">
-                <span className="font-mono tabular-nums font-bold text-pink-700">{loveDuration.days}</span>
-                <span>ngày</span>
-                <span className="font-mono tabular-nums font-bold text-pink-700 tracking-wider">{loveDuration.time}</span>
-              </span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* Nhãn 1: Tổng số ngày & Đồng hồ thời gian thực */}
+              <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-white/90 border border-pink-200 shadow-sm backdrop-blur-md text-pink-600 text-[11px] sm:text-xs font-semibold">
+                <span className="inline-block animate-pulse text-xs">💕</span>
+                <span className="whitespace-nowrap flex items-center gap-1">
+                  <span className="font-mono tabular-nums font-bold text-pink-700">{loveDuration.days}</span>
+                  <span>ngày</span>
+                  <span className="text-pink-300">•</span>
+                  <span className="font-mono tabular-nums font-bold text-pink-700 tracking-wider">{loveDuration.time}</span>
+                </span>
+              </div>
+
+              {/* Nhãn 2: Quy đổi chính xác Năm - Tháng - Ngày */}
+              <div className="flex items-center gap-1 px-2.5 sm:px-3 py-1 rounded-full bg-pink-100/80 border border-pink-200/90 shadow-sm backdrop-blur-md text-pink-700 text-[11px] sm:text-xs font-medium whitespace-nowrap">
+                <span className="text-xs">✨</span>
+                <span>
+                  <strong className="font-bold">{loveDuration.years}</strong> năm{' '}
+                  <strong className="font-bold">{loveDuration.months}</strong> tháng{' '}
+                  <strong className="font-bold">{loveDuration.calendarDays}</strong> ngày
+                </span>
+              </div>
             </div>
           )}
         </div>
