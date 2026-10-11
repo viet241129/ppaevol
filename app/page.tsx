@@ -1329,9 +1329,9 @@ export default function Dashboard() {
 
       {/* --- MODAL ALBUM LOCKET (LỊCH SỬ KHOẢNH KHẮC) --- */}
       {showAlbumModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => setShowAlbumModal(false)}>
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-14 md:pt-20 p-4 bg-black/40 backdrop-blur-sm" onClick={() => setShowAlbumModal(false)}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl h-[580px] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100 flex-shrink-0">
               <div>
                 <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                   <Images size={20} className="text-amber-500" />
@@ -1345,7 +1345,7 @@ export default function Dashboard() {
             </div>
 
             {/* 3 Tab bộ lọc */}
-            <div className="flex gap-2 mb-3 text-xs">
+            <div className="flex gap-2 mb-3 text-xs flex-shrink-0">
               <button 
                 onClick={() => setAlbumFilter('all')} 
                 className={`flex-1 py-1.5 rounded-xl text-center transition-colors ${albumFilter === 'all' ? 'bg-amber-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
@@ -1413,9 +1413,9 @@ export default function Dashboard() {
 
       {/* --- MODAL LỊCH SỬ HOẠT ĐỘNG (ACTIVITY LOGS) --- */}
       {showActivityModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={() => setShowActivityModal(false)}>
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-14 md:pt-20 p-4 bg-black/40 backdrop-blur-sm" onClick={() => setShowActivityModal(false)}>
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl h-[580px] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4 pb-2 border-b border-gray-100 flex-shrink-0">
               <div>
                 <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
                   <Clock size={18} className="text-pink-500" />
@@ -1428,8 +1428,8 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Filter Tabs linh hoạt, không bị che khuất hay cắt chữ */}
-            <div className="flex flex-wrap gap-1.5 mb-3 text-xs">
+            {/* Filter Tabs cố định, linh hoạt, không bị che khuất hay cắt chữ */}
+            <div className="flex flex-wrap gap-1.5 mb-3 text-xs flex-shrink-0">
               <button 
                 onClick={() => setLogFilterModule('all')} 
                 className={`px-3 py-1.5 rounded-xl transition-colors ${logFilterModule === 'all' ? 'bg-pink-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
@@ -1447,7 +1447,7 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {/* Danh sách log */}
+            {/* Danh sách log cuộn độc lập bên trong */}
             <div className="flex-1 overflow-y-auto space-y-2 pr-1 hide-scrollbar">
               {filteredLogs.map(log => (
                 <div key={log.id} className="p-3 rounded-2xl bg-gray-50 hover:bg-pink-50/50 transition-colors border border-gray-100 text-xs flex flex-col gap-1">
