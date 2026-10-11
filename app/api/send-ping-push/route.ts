@@ -15,7 +15,7 @@ webpush.setVapidDetails(
 
 export async function POST(req: Request) {
   try {
-    const { partner_id, sender_name } = await req.json();
+    const { partner_id, sender_name, title, body } = await req.json();
 
     // Lấy subscriptions của partner
     const { data: subs, error } = await supabase
@@ -33,8 +33,8 @@ export async function POST(req: Request) {
     }
 
     const payload = JSON.stringify({
-      title: 'Ting ting! 💖',
-      body: `${sender_name || 'Nửa kia'} vừa Ping bạn kìa!`,
+      title: title || 'Ting ting! 💖',
+      body: body || `${sender_name || 'Nửa kia'} vừa Ping bạn kìa!`,
     });
 
     // Gửi push tới tất cả thiết bị của partner
