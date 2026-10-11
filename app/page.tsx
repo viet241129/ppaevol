@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { 
   MapPin, Heart, Smile, CalendarDays, 
   Wallet, CheckSquare, Gift, LogOut, Plus, Minus, Trash2, Check, X, ExternalLink, Navigation, BellRing,
-  Info, Camera, Clock, Eye, Sparkles, Images
+  Info, Camera, Clock, Eye, Sparkles, Images, RotateCw
 } from 'lucide-react'
 
 const MOODS = [
@@ -69,7 +69,19 @@ export default function Dashboard() {
   const [partnerLat, setPartnerLat] = useState<number | null>(null)
   const [partnerLng, setPartnerLng] = useState<number | null>(null)
   const [partnerLocationUpdatedAt, setPartnerLocationUpdatedAt] = useState<string | null>(null)
+  const [myLocationUpdatedAt, setMyLocationUpdatedAt] = useState<string | null>(null)
   const [isUpdatingLocation, setIsUpdatingLocation] = useState(false)
+
+  // Location Sync Refs
+  const isSyncingLocationRef = useRef(false)
+  const lastLocationSyncTimeRef = useRef(0)
+  const userRef = useRef<any>(null)
+  const roleRef = useRef<'boyfriend' | 'girlfriend' | null>(null)
+
+  useEffect(() => {
+    userRef.current = user
+    roleRef.current = role
+  }, [user, role])
 
   // Love Fund
   const [loveFund, setLoveFund] = useState<any[]>([])
@@ -226,6 +238,7 @@ export default function Dashboard() {
           setMyMoodUpdatedAt(myProfile.updated_at || myProfile.created_at || null)
           setMyLat(myProfile.latitude)
           setMyLng(myProfile.longitude)
+          setMyLocationUpdatedAt(myProfile.updated_at || null)
           setPartnerRole(myProfile.role === 'boyfriend' ? 'girlfriend' : 'boyfriend')
         }
         if (otherProfile) {
@@ -447,53 +460,115 @@ export default function Dashboard() {
     }
   }
 
-  const updateLocation = () => {
-    if (!navigator.geolocation) {
-      alert('Trình duyệt không hỗ trợ lấy vị trí.')
+  const updateLocation = useCallback((isSilent = false) => {
+    if (typeof window === 'undefined' || !navigator.geolocation) {
+      if (!isSilent) alert('Trình duyệt không hỗ trợ lấy vị trí.')
       return
     }
-    const senderName = role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
-    setIsUpdatingLocation(true)
+
+    const currentUser = userRef.current || user
+    if (!currentUser) return
+
+    // Throttle silent sync: Tránh spam nếu vừa lấy trong 20s (trừ khi người dùng bấm thủ công)
+    const now = Date.now()
+    if (isSilent && now - lastLocationSyncTimeRef.current < 20000) {
+      return
+    }
+
+    if (isSyncingLocationRef.current) return
+    isSyncingLocationRef.current = true
+
+    if (!isSilent) {
+      setIsUpdatingLocation(true)
+    }
+
+    const currentRole = roleRef.current || role
+    const senderName = currentRole === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
+
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = pos.coords.latitude
         const lng = pos.coords.longitude
         const nowIso = new Date().toISOString()
+        lastLocationSyncTimeRef.current = Date.now()
+
         try {
           let { error } = await supabase.from('profiles').update({ 
             latitude: lat, 
             longitude: lng,
             updated_at: nowIso
-          }).eq('id', user.id)
+          }).eq('id', currentUser.id)
           
           if (error && error.message?.includes('updated_at')) {
             const res = await supabase.from('profiles').update({ 
               latitude: lat, 
               longitude: lng 
-            }).eq('id', user.id)
+            }).eq('id', currentUser.id)
             error = res.error
           }
 
-          if (error) console.error('❌ Lỗi lưu vị trí:', error)
-          else {
+          if (error) {
+            console.error('❌ Lỗi lưu vị trí:', error)
+          } else {
             setMyLat(lat)
             setMyLng(lng)
-            await sendPushNotification('Vị trí mới 📍', `${senderName} vừa cập nhật vị trí mới`)
-            await logActivity('location', 'update', `${senderName} cập nhật vị trí (${lat.toFixed(3)}, ${lng.toFixed(3)})`)
+            setMyLocationUpdatedAt(nowIso)
+
+            // Khi bấm thủ công thì gửi push notification và ghi activity log
+            if (!isSilent) {
+              await sendPushNotification('Vị trí mới 📍', `${senderName} vừa cập nhật vị trí mới`)
+              await logActivity('location', 'update', `${senderName} cập nhật vị trí (${lat.toFixed(3)}, ${lng.toFixed(3)})`)
+            }
           }
         } catch (err) {
           console.error('❌ Lỗi ngoại lệ lưu vị trí:', err)
+        } finally {
+          isSyncingLocationRef.current = false
+          setIsUpdatingLocation(false)
         }
-        setIsUpdatingLocation(false)
       },
       (err) => {
         console.error('Lỗi lấy vị trí:', err)
-        alert('Không thể lấy vị trí. Hãy bật Quyền truy cập vị trí.')
+        if (!isSilent) {
+          alert('Không thể lấy vị trí. Hãy bật Quyền truy cập vị trí.')
+        }
+        isSyncingLocationRef.current = false
         setIsUpdatingLocation(false)
       },
-      { enableHighAccuracy: true }
+      { 
+        enableHighAccuracy: !isSilent, 
+        timeout: isSilent ? 10000 : 15000, 
+        maximumAge: isSilent ? 60000 : 0 
+      }
     )
-  }
+  }, [logActivity, role, sendPushNotification, supabase, user])
+
+  // --- TỰ ĐỘNG CẬP NHẬT VỊ TRÍ NGẦM (SILENT AUTO-SYNC) ---
+  useEffect(() => {
+    if (!user?.id) return
+
+    // 1. Chạy ngay khi mở ứng dụng (component mount / auth ready)
+    updateLocation(true)
+
+    // 2. Lắng nghe visibilitychange và window.focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        updateLocation(true)
+      }
+    }
+
+    const handleFocus = () => {
+      updateLocation(true)
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [user?.id, updateLocation])
 
   const handleOpenFundForm = (type: 'Thu' | 'Chi') => {
     if (showFundForm && fundType === type) {
@@ -1053,19 +1128,28 @@ export default function Dashboard() {
             </div>
             
             <div className="flex items-center justify-between pointer-events-auto mt-auto">
-              <div className="bg-white/80 backdrop-blur-sm px-2.5 py-1 rounded-lg shadow-sm flex flex-col">
-                <span className="text-[10px] text-gray-600 font-medium">Bạn: {myLat ? `${myLat.toFixed(3)}, ${myLng?.toFixed(3)}` : 'Chưa rõ'}</span>
-                {partnerLocationUpdatedAt && (
-                  <span className="text-[9px] text-blue-600 font-bold">Cập nhật lúc {format24h(partnerLocationUpdatedAt)}</span>
+              <div className="bg-white/85 backdrop-blur-sm px-2.5 py-1.5 rounded-xl shadow-sm flex flex-col gap-0.5 border border-white/60">
+                <span className="text-[10px] text-gray-600 font-medium">
+                  Bạn: {myLat ? `${myLat.toFixed(3)}, ${myLng?.toFixed(3)}` : 'Đang lấy vị trí...'}
+                  {myLocationUpdatedAt && (
+                    <span className="text-[9px] text-gray-400 ml-1">({format24h(myLocationUpdatedAt)})</span>
+                  )}
+                </span>
+                {partnerLocationUpdatedAt ? (
+                  <span className="text-[10px] text-blue-600 font-bold">
+                    Cập nhật lúc {format24h(partnerLocationUpdatedAt)}
+                  </span>
+                ) : (
+                  <span className="text-[9px] text-gray-400 italic">Nửa kia chưa có vị trí</span>
                 )}
               </div>
               <button 
-                onClick={updateLocation} 
+                onClick={() => updateLocation(false)} 
                 disabled={isUpdatingLocation}
-                className="flex items-center gap-1 bg-blue-500 text-white px-3 py-1.5 rounded-full text-xs font-bold shadow-md hover:bg-blue-600 disabled:opacity-50"
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm text-blue-600 hover:text-blue-700 hover:bg-white shadow-sm border border-blue-100 active:scale-90 transition-all disabled:opacity-50"
+                title="Làm mới vị trí"
               >
-                <Navigation size={12} />
-                {isUpdatingLocation ? 'Đang dò...' : 'Cập nhật'}
+                <RotateCw size={14} className={isUpdatingLocation ? 'animate-spin' : ''} />
               </button>
             </div>
           </div>
