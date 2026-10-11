@@ -1172,8 +1172,8 @@ export default function Dashboard() {
         </div>
 
         {/* 6. MODULE: KHOẢNH KHẮC (LOCKET) */}
-        <div className="col-span-2 sm:col-span-1 flex flex-col justify-between rounded-3xl bg-amber-50 p-5 shadow-sm max-h-72 border border-amber-100 relative group">
-          <div className="flex items-center justify-between mb-2">
+        <div className="col-span-2 sm:col-span-1 md:col-span-1 md:col-start-4 md:row-start-2 md:row-span-2 flex flex-col justify-between rounded-3xl bg-amber-50 p-5 shadow-sm border border-amber-100 relative group md:h-full md:max-h-none">
+          <div className="flex items-center justify-between mb-2 flex-shrink-0">
             <div className="flex items-center gap-1.5">
               <h2 className="text-sm font-semibold text-amber-800">Khoảnh khắc 📸</h2>
               <button 
@@ -1212,9 +1212,12 @@ export default function Dashboard() {
           </div>
 
           {/* Nội dung ảnh */}
-          <div className="flex-1 flex flex-col justify-center items-center overflow-hidden my-1">
+          <div className="flex-1 flex flex-col justify-center items-center overflow-hidden my-2 min-h-0">
             {latestLocketPhoto ? (
-              <div className="relative w-full h-32 rounded-2xl overflow-hidden group/img cursor-pointer shadow-sm border border-amber-200/60" onClick={() => setViewingPhoto(latestLocketPhoto)}>
+              <div 
+                className="relative w-full aspect-[4/5] max-h-[340px] md:max-h-[460px] rounded-2xl overflow-hidden group/img cursor-pointer shadow-sm border border-amber-200/60 bg-amber-100/50" 
+                onClick={() => setViewingPhoto(latestLocketPhoto)}
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img 
                   src={latestLocketPhoto.photo_url} 
@@ -1224,8 +1227,8 @@ export default function Dashboard() {
 
                 {/* Thanh Caption dạng viên thuốc mờ (Glassmorphism Pill) chuẩn phong cách Locket */}
                 {latestLocketPhoto.caption && latestLocketPhoto.caption.trim() !== '' && (
-                  <div className="absolute bottom-2 inset-x-2 flex justify-center pointer-events-none z-10">
-                    <div className="bg-black/50 backdrop-blur-md text-white border border-white/20 px-3 py-1 rounded-full text-[11px] font-medium text-center line-clamp-1 max-w-[95%] shadow-md">
+                  <div className="absolute bottom-2.5 inset-x-2 flex justify-center pointer-events-none z-10">
+                    <div className="bg-black/55 backdrop-blur-md text-white border border-white/20 px-3.5 py-1 rounded-full text-xs font-medium text-center line-clamp-2 max-w-[92%] shadow-lg">
                       {latestLocketPhoto.caption}
                     </div>
                   </div>
@@ -1251,17 +1254,19 @@ export default function Dashboard() {
             ) : (
               <div 
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full h-32 rounded-2xl border-2 border-dashed border-amber-200 flex flex-col items-center justify-center p-3 text-center cursor-pointer hover:bg-amber-100/50 transition-colors"
+                className="w-full aspect-[4/5] max-h-[340px] md:max-h-[460px] rounded-2xl border-2 border-dashed border-amber-200 flex flex-col items-center justify-center p-4 text-center cursor-pointer hover:bg-amber-100/50 transition-colors bg-white/40"
               >
-                <Camera size={26} className="text-amber-400 mb-1" />
-                <span className="text-xs font-medium text-amber-700">Chưa có ảnh nào</span>
-                <span className="text-[10px] text-amber-500">Chạm để chụp / gửi ảnh 📸</span>
+                <div className="rounded-full bg-amber-100 p-3 text-amber-500 mb-2 shadow-sm">
+                  <Camera size={28} />
+                </div>
+                <span className="text-xs font-semibold text-amber-800">Chưa có ảnh nào</span>
+                <span className="text-[10px] text-amber-600 mt-1">Chạm để chụp hoặc gửi ảnh 📸</span>
               </div>
             )}
           </div>
 
           {/* Thông tin thời gian */}
-          <div className="mt-1 flex items-center justify-between text-[11px] text-amber-700 font-medium">
+          <div className="mt-1 flex items-center justify-between text-[11px] text-amber-700 font-medium flex-shrink-0">
             {isUploadingLocket ? (
               <span className="text-amber-600 animate-pulse font-bold">Đang tải ảnh lên...</span>
             ) : latestLocketPhoto ? (
@@ -1289,7 +1294,7 @@ export default function Dashboard() {
         </div>
 
         {/* 7. LOVE FUND */}
-        <div className="col-span-2 flex flex-col rounded-3xl bg-green-100 p-5 shadow-sm max-h-72">
+        <div className="col-span-2 sm:col-span-1 md:col-span-1 flex flex-col rounded-3xl bg-green-100 p-5 shadow-sm max-h-72">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
               <h2 className="text-sm font-semibold text-green-800">Love Fund</h2>
@@ -1323,7 +1328,7 @@ export default function Dashboard() {
           </div>
           
           <div className="mb-3">
-            <p className="text-2xl font-bold text-green-700">{fundTotal.toLocaleString('vi-VN')}<span className="text-lg font-medium text-green-600/80"> ₫</span></p>
+            <p className="text-2xl font-bold text-green-700 truncate">{fundTotal.toLocaleString('vi-VN')}<span className="text-lg font-medium text-green-600/80"> ₫</span></p>
           </div>
 
           {showFundForm ? (
@@ -1355,20 +1360,20 @@ export default function Dashboard() {
                 />
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 <input 
                   type="text" 
                   value={fundReason} 
                   onChange={e => setFundReason(e.target.value)} 
-                  placeholder={fundType === 'Thu' ? 'Lý do thu (tiết kiệm, thưởng...)' : 'Lý do chi (đi ăn, mua sắm...)'} 
-                  className="w-full rounded-xl p-1.5 text-xs outline-none bg-white border border-gray-200 focus:border-green-400" 
+                  placeholder={fundType === 'Thu' ? 'Lý do thu...' : 'Lý do chi...'} 
+                  className="w-full min-w-0 rounded-xl p-1.5 text-xs outline-none bg-white border border-gray-200 focus:border-green-400" 
                   required 
                 />
                 <button 
                   type="submit" 
-                  className={`text-white px-3 py-1 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${fundType === 'Thu' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-500 hover:bg-red-600'}`}
+                  className={`text-white px-2.5 py-1 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors flex-shrink-0 ${fundType === 'Thu' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-500 hover:bg-red-600'}`}
                 >
-                  {fundType === 'Thu' ? 'Lưu Thu' : 'Lưu Chi'}
+                  {fundType === 'Thu' ? 'Lưu' : 'Lưu'}
                 </button>
               </div>
             </form>
@@ -1376,15 +1381,15 @@ export default function Dashboard() {
             <div className="flex-1 space-y-1.5 overflow-y-auto hide-scrollbar">
               {loveFund.map(fund => (
                 <div key={fund.id} className="flex justify-between items-center text-xs bg-white/60 p-2 rounded-xl">
-                  <div className="flex flex-col truncate w-1/2">
+                  <div className="flex flex-col truncate flex-1 min-w-0 mr-1.5">
                     <span className="truncate text-green-900 font-medium">{fund.reason}</span>
                     <span className="text-[9px] text-green-700/80">{formatDateTime24h(fund.created_at)}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`font-bold ${fund.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span className={`font-bold text-xs whitespace-nowrap ${fund.type === 'income' ? 'text-green-600' : 'text-red-500'}`}>
                       {fund.type === 'income' ? '+' : '-'}{Number(fund.amount).toLocaleString('vi-VN')}
                     </span>
-                    <button onClick={() => deleteLoveFund(fund.id, fund.reason)} className="text-gray-400 hover:text-red-500"><Trash2 size={12}/></button>
+                    <button onClick={() => deleteLoveFund(fund.id, fund.reason)} className="text-gray-400 hover:text-red-500 p-0.5"><Trash2 size={12}/></button>
                   </div>
                 </div>
               ))}
@@ -1393,7 +1398,7 @@ export default function Dashboard() {
         </div>
 
         {/* 8. TODOS */}
-        <div className="col-span-2 sm:col-span-1 flex flex-col rounded-3xl bg-white p-5 shadow-sm max-h-72">
+        <div className="col-span-2 sm:col-span-1 md:col-span-1 flex flex-col rounded-3xl bg-white p-5 shadow-sm max-h-72">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-1.5">
               <h2 className="text-sm font-semibold text-gray-600">To-do chung</h2>
@@ -1430,7 +1435,7 @@ export default function Dashboard() {
         </div>
 
         {/* 9. WISHLIST */}
-        <div className="col-span-2 sm:col-span-1 flex flex-col rounded-3xl bg-white p-5 shadow-sm max-h-72 overflow-hidden">
+        <div className="col-span-2 sm:col-span-1 md:col-span-1 flex flex-col rounded-3xl bg-white p-5 shadow-sm max-h-72 overflow-hidden">
            <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-1.5">
               <h2 className="text-sm font-semibold text-gray-600">Wishlist</h2>
