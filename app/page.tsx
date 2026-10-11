@@ -111,6 +111,32 @@ export default function Dashboard() {
   const [pinged, setPinged] = useState(false)
   const channelRef = useRef<any>(null)
 
+  // Love Counter (Bộ đếm thời gian yêu nhau từ 20:00:00 23/09/2022 GMT+7)
+  const [loveDuration, setLoveDuration] = useState<{
+    days: number;
+    time: string;
+  } | null>(null)
+
+  useEffect(() => {
+    const START_TIME = new Date('2022-09-23T20:00:00+07:00').getTime()
+    const updateCounter = () => {
+      const now = Date.now()
+      const diff = Math.max(0, now - START_TIME)
+      const totalSec = Math.floor(diff / 1000)
+      const days = Math.floor(totalSec / 86400)
+      const hours = String(Math.floor((totalSec % 86400) / 3600)).padStart(2, '0')
+      const minutes = String(Math.floor((totalSec % 3600) / 60)).padStart(2, '0')
+      const seconds = String(totalSec % 60).padStart(2, '0')
+      setLoveDuration({
+        days,
+        time: `${hours}:${minutes}:${seconds}`
+      })
+    }
+    updateCounter()
+    const interval = setInterval(updateCounter, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
   // --- HÀM GỬI THÔNG BÁO ĐẨY WEB PUSH ---
   const sendPushNotification = useCallback(async (title: string, body: string) => {
     if (!partnerId) return
@@ -845,14 +871,29 @@ export default function Dashboard() {
     <div className="min-h-screen bg-pink-50 p-4 pb-20 font-sans text-gray-800 relative">
       
       {/* HEADER */}
-      <header className="mb-6 mt-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-pink-600">ppaevol 💖</h1>
-          <p className="text-sm text-gray-500">
-            {role === 'boyfriend' ? 'Bạn Trai' : role === 'girlfriend' ? 'Bạn Gái' : 'Đang tải...'}
-          </p>
+      <header className="mb-6 mt-4 flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold text-pink-600 tracking-tight leading-none">ppaevol 💖</h1>
+            <span className="text-[11px] text-gray-500 font-medium">
+              ({role === 'boyfriend' ? 'Bạn Trai' : role === 'girlfriend' ? 'Bạn Gái' : 'Đang tải...'})
+            </span>
+          </div>
+
+          {/* Love Counter Pill */}
+          {loveDuration && (
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/90 border border-pink-200 shadow-sm backdrop-blur-md text-pink-600 text-xs font-semibold w-fit">
+              <span className="inline-block animate-pulse text-xs">💕</span>
+              <span className="whitespace-nowrap flex items-center gap-1 text-[11px] sm:text-xs">
+                <span className="font-mono tabular-nums font-bold text-pink-700">{loveDuration.days}</span>
+                <span>ngày</span>
+                <span className="font-mono tabular-nums font-bold text-pink-700 tracking-wider">{loveDuration.time}</span>
+              </span>
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           <button 
             onClick={() => openActivityModal('all')} 
             className="rounded-full bg-white p-2 text-gray-500 shadow-sm transition-colors hover:text-pink-600" 
