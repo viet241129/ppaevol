@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { 
   MapPin, Heart, Smile, CalendarDays, 
-  Wallet, CheckSquare, Gift, LogOut, Plus, Trash2, Check, X, ExternalLink, Navigation, BellRing,
+  Wallet, CheckSquare, Gift, LogOut, Plus, Minus, Trash2, Check, X, ExternalLink, Navigation, BellRing,
   Info, Camera, Clock, Eye, Sparkles, Images
 } from 'lucide-react'
 
@@ -432,6 +432,15 @@ export default function Dashboard() {
       },
       { enableHighAccuracy: true }
     )
+  }
+
+  const handleOpenFundForm = (type: 'Thu' | 'Chi') => {
+    if (showFundForm && fundType === type) {
+      setShowFundForm(false)
+    } else {
+      setFundType(type)
+      setShowFundForm(true)
+    }
   }
 
   const addLoveFund = async (e: React.FormEvent) => {
@@ -1173,8 +1182,24 @@ export default function Dashboard() {
                 <Info size={14} />
               </button>
             </div>
-            <div className="rounded-full bg-green-200 p-2 text-green-600 cursor-pointer transition-transform hover:scale-110" onClick={() => setShowFundForm(!showFundForm)}>
-              {showFundForm ? <X size={20} /> : <Plus size={20} />}
+            {/* 2 Nút riêng biệt: + (Thu màu xanh) và - (Chi màu đỏ) */}
+            <div className="flex items-center gap-1.5">
+              <button 
+                type="button"
+                onClick={() => handleOpenFundForm('Thu')}
+                className={`rounded-full p-1.5 transition-all shadow-sm ${showFundForm && fundType === 'Thu' ? 'bg-green-600 text-white scale-105' : 'bg-green-200 text-green-700 hover:bg-green-300'}`}
+                title="Thêm khoản thu (+)"
+              >
+                <Plus size={15} />
+              </button>
+              <button 
+                type="button"
+                onClick={() => handleOpenFundForm('Chi')}
+                className={`rounded-full p-1.5 transition-all shadow-sm ${showFundForm && fundType === 'Chi' ? 'bg-red-500 text-white scale-105' : 'bg-red-100 text-red-600 hover:bg-red-200'}`}
+                title="Ghi nhận chi tiêu (-)"
+              >
+                <Minus size={15} />
+              </button>
             </div>
           </div>
           
@@ -1183,17 +1208,49 @@ export default function Dashboard() {
           </div>
 
           {showFundForm ? (
-            <form onSubmit={addLoveFund} className="flex flex-col gap-2 bg-white/60 p-2 rounded-xl mb-2">
-              <div className="flex gap-2">
-                <select value={fundType} onChange={e => setFundType(e.target.value as any)} className="rounded-lg p-1 text-xs outline-none bg-white">
-                  <option value="Thu">Thu (+)</option>
-                  <option value="Chi">Chi (-)</option>
-                </select>
-                <input type="number" value={fundAmount} onChange={e => setFundAmount(e.target.value)} placeholder="Số tiền" className="w-full rounded-lg p-1 text-xs outline-none" required />
+            <form onSubmit={addLoveFund} className={`flex flex-col gap-2 p-2.5 rounded-2xl mb-2 transition-colors border shadow-sm ${fundType === 'Thu' ? 'bg-green-50/90 border-green-200' : 'bg-red-50/90 border-red-200'}`}>
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-bold flex items-center gap-1.5 ${fundType === 'Thu' ? 'text-green-700' : 'text-red-600'}`}>
+                  <span className={`w-2 h-2 rounded-full ${fundType === 'Thu' ? 'bg-green-500' : 'bg-red-500'}`}></span>
+                  {fundType === 'Thu' ? 'Khoản thu (+)' : 'Khoản chi (-)'}
+                </span>
+                <button 
+                  type="button" 
+                  onClick={() => setShowFundForm(false)} 
+                  className="text-gray-400 hover:text-gray-600 p-0.5 rounded-full hover:bg-black/5 transition-colors"
+                  title="Đóng form"
+                >
+                  <X size={14} />
+                </button>
               </div>
+
               <div className="flex gap-2">
-                <input type="text" value={fundReason} onChange={e => setFundReason(e.target.value)} placeholder="Lý do" className="w-full rounded-lg p-1 text-xs outline-none" required />
-                <button type="submit" className="bg-green-500 text-white px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap">Lưu</button>
+                <input 
+                  type="number" 
+                  value={fundAmount} 
+                  onChange={e => setFundAmount(e.target.value)} 
+                  placeholder="Số tiền..." 
+                  className="w-full rounded-xl p-1.5 text-xs outline-none bg-white border border-gray-200 focus:border-green-400 font-medium" 
+                  required 
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  value={fundReason} 
+                  onChange={e => setFundReason(e.target.value)} 
+                  placeholder={fundType === 'Thu' ? 'Lý do thu (tiết kiệm, thưởng...)' : 'Lý do chi (đi ăn, mua sắm...)'} 
+                  className="w-full rounded-xl p-1.5 text-xs outline-none bg-white border border-gray-200 focus:border-green-400" 
+                  required 
+                />
+                <button 
+                  type="submit" 
+                  className={`text-white px-3 py-1 rounded-xl text-xs font-bold whitespace-nowrap shadow-sm transition-colors ${fundType === 'Thu' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-500 hover:bg-red-600'}`}
+                >
+                  {fundType === 'Thu' ? 'Lưu Thu' : 'Lưu Chi'}
+                </button>
               </div>
             </form>
           ) : (
