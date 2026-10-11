@@ -101,6 +101,9 @@ export default function Dashboard() {
   const [viewingPhoto, setViewingPhoto] = useState<any | null>(null)
   const [showAlbumModal, setShowAlbumModal] = useState(false)
   const [albumFilter, setAlbumFilter] = useState<'all' | 'boyfriend' | 'girlfriend'>('all')
+  const [locketPreviewUrl, setLocketPreviewUrl] = useState<string | null>(null)
+  const [locketCaption, setLocketCaption] = useState('')
+  const [showLocketPreviewModal, setShowLocketPreviewModal] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Activity Logs & Info Modal
@@ -726,78 +729,97 @@ export default function Dashboard() {
     }
   }
 
-  // --- LOCKET UPLOAD ---
-  const handleUploadLocket = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // --- LOCKET UPLOAD: BƯỚC 1 CHỌN ẢNH ĐỂ XEM TRƯỚC VÀ NHẬP CAPTION ---
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file || !user) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      setLocketPreviewUrl(event.target?.result as string)
+      setLocketCaption('')
+      setShowLocketPreviewModal(true)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+    reader.readAsDataURL(file)
+  }
+
+  // --- LOCKET UPLOAD: BƯỚC 2 XÁC NHẬN GỬI ẢNH KÈM CAPTION ---
+  const handleConfirmUploadLocket = async () => {
+    if (!locketPreviewUrl || !user) return
     setIsUploadingLocket(true)
     const senderName = role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
+    const finalCaption = locketCaption.trim()
 
     try {
-      const reader = new FileReader()
-      reader.onload = async (event) => {
-        const img = new window.Image()
-        img.onload = async () => {
-          const canvas = document.createElement('canvas')
-          const maxDim = 900
-          let width = img.width
-          let height = img.height
-          if (width > maxDim || height > maxDim) {
-            if (width > height) {
-              height = Math.round((height * maxDim) / width)
-              width = maxDim
-            } else {
-              width = Math.round((width * maxDim) / height)
-              height = maxDim
-            }
-          }
-          canvas.width = width
-          canvas.height = height
-          const ctx = canvas.getContext('2d')
-          ctx?.drawImage(img, 0, 0, width, height)
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75)
-
-          let finalUrl = compressedDataUrl
-
-          try {
-            const fileName = `${user.id}-${Date.now()}.jpg`
-            const blob = await (await fetch(compressedDataUrl)).blob()
-            const { data: storageData, error: storageErr } = await supabase.storage.from('locket').upload(fileName, blob, {
-              contentType: 'image/jpeg',
-              upsert: true
-            })
-            if (!storageErr && storageData) {
-              const { data: pubData } = supabase.storage.from('locket').getPublicUrl(fileName)
-              if (pubData?.publicUrl) {
-                finalUrl = pubData.publicUrl
-              }
-            }
-          } catch (storageErr) {
-            console.log('Storage fallback to dataURL:', storageErr)
-          }
-
-          const { error: dbErr } = await supabase.from('locket_photos').insert([{
-            user_id: user.id,
-            user_role: role,
-            photo_url: finalUrl,
-            caption: ''
-          }])
-
-          if (dbErr) {
-            console.error('❌ Lỗi lưu locket photo:', dbErr)
-            alert('Lỗi lưu ảnh: ' + dbErr.message)
+      const img = new window.Image()
+      img.onload = async () => {
+        const canvas = document.createElement('canvas')
+        const maxDim = 900
+        let width = img.width
+        let height = img.height
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width)
+            width = maxDim
           } else {
-            await cleanupOldLocketPhotos()
-            await fetchLocketPhotos()
+            width = Math.round((width * maxDim) / height)
+            height = maxDim
+          }
+        }
+        canvas.width = width
+        canvas.height = height
+        const ctx = canvas.getContext('2d')
+        ctx?.drawImage(img, 0, 0, width, height)
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75)
+
+        let finalUrl = compressedDataUrl
+
+        try {
+          const fileName = `${user.id}-${Date.now()}.jpg`
+          const blob = await (await fetch(compressedDataUrl)).blob()
+          const { data: storageData, error: storageErr } = await supabase.storage.from('locket').upload(fileName, blob, {
+            contentType: 'image/jpeg',
+            upsert: true
+          })
+          if (!storageErr && storageData) {
+            const { data: pubData } = supabase.storage.from('locket').getPublicUrl(fileName)
+            if (pubData?.publicUrl) {
+              finalUrl = pubData.publicUrl
+            }
+          }
+        } catch (storageErr) {
+          console.log('Storage fallback to dataURL:', storageErr)
+        }
+
+        const { error: dbErr } = await supabase.from('locket_photos').insert([{
+          user_id: user.id,
+          user_role: role,
+          photo_url: finalUrl,
+          caption: finalCaption
+        }])
+
+        if (dbErr) {
+          console.error('❌ Lỗi lưu locket photo:', dbErr)
+          alert('Lỗi lưu ảnh: ' + dbErr.message)
+        } else {
+          setShowLocketPreviewModal(false)
+          setLocketPreviewUrl(null)
+          setLocketCaption('')
+          await cleanupOldLocketPhotos()
+          await fetchLocketPhotos()
+
+          if (finalCaption) {
+            await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi khoảnh khắc: ${finalCaption}`)
+            await logActivity('locket', 'create', `${senderName} đăng khoảnh khắc: "${finalCaption}"`)
+          } else {
             await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi một khoảnh khắc ảnh mới`)
             await logActivity('locket', 'create', `${senderName} đăng một khoảnh khắc ảnh mới`)
           }
-          setIsUploadingLocket(false)
-          if (fileInputRef.current) fileInputRef.current.value = ''
         }
-        img.src = event.target?.result as string
+        setIsUploadingLocket(false)
       }
-      reader.readAsDataURL(file)
+      img.src = locketPreviewUrl
     } catch (err: any) {
       console.error('Lỗi upload ảnh:', err)
       alert('Lỗi upload: ' + err.message)
@@ -1175,7 +1197,7 @@ export default function Dashboard() {
                 accept="image/*" 
                 capture="environment"
                 ref={fileInputRef} 
-                onChange={handleUploadLocket} 
+                onChange={handleFileSelect} 
                 className="hidden" 
               />
               <button 
@@ -1199,7 +1221,17 @@ export default function Dashboard() {
                   alt="Khoảnh khắc" 
                   className="w-full h-full object-cover transition-transform group-hover/img:scale-105 duration-300" 
                 />
-                <div className="absolute inset-0 bg-black/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2.5 text-white">
+
+                {/* Thanh Caption dạng viên thuốc mờ (Glassmorphism Pill) chuẩn phong cách Locket */}
+                {latestLocketPhoto.caption && latestLocketPhoto.caption.trim() !== '' && (
+                  <div className="absolute bottom-2 inset-x-2 flex justify-center pointer-events-none z-10">
+                    <div className="bg-black/50 backdrop-blur-md text-white border border-white/20 px-3 py-1 rounded-full text-[11px] font-medium text-center line-clamp-1 max-w-[95%] shadow-md">
+                      {latestLocketPhoto.caption}
+                    </div>
+                  </div>
+                )}
+
+                <div className="absolute inset-0 bg-black/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-2.5 text-white z-20">
                   <button 
                     onClick={(e) => { e.stopPropagation(); setViewingPhoto(latestLocketPhoto); }}
                     className="p-1.5 rounded-full bg-white/20 hover:bg-white/40 backdrop-blur-sm transition-colors"
@@ -1530,6 +1562,14 @@ export default function Dashboard() {
                       <div className="absolute top-1 left-1 bg-black/50 text-white text-[9px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
                         {photo.user_role === 'boyfriend' ? '👦🏻' : '👧🏻'}
                       </div>
+                      {/* Caption thu nhỏ nếu có */}
+                      {photo.caption && photo.caption.trim() !== '' && (
+                        <div className="absolute bottom-5 inset-x-1 flex justify-center pointer-events-none">
+                          <span className="bg-black/65 backdrop-blur-sm text-white text-[8px] px-1.5 py-0.5 rounded-full truncate max-w-[92%] border border-white/10 font-medium">
+                            {photo.caption}
+                          </span>
+                        </div>
+                      )}
                       {/* Thời gian */}
                       <div className="absolute bottom-1 inset-x-1 bg-black/60 text-white text-[8px] text-center py-0.5 rounded backdrop-blur-sm font-medium truncate">
                         {format24h(photo.created_at)} {new Date(photo.created_at).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
@@ -1646,14 +1686,102 @@ export default function Dashboard() {
               </div>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img 
-              src={viewingPhoto.photo_url} 
-              alt="Khoảnh khắc" 
-              className="w-full max-h-[65vh] object-cover rounded-2xl shadow-inner"
-            />
-            {viewingPhoto.caption && (
-              <p className="mt-3 text-xs text-gray-700 text-center font-medium">{viewingPhoto.caption}</p>
-            )}
+            <div className="relative rounded-2xl overflow-hidden shadow-inner bg-black">
+              <img 
+                src={viewingPhoto.photo_url} 
+                alt="Khoảnh khắc" 
+                className="w-full max-h-[65vh] object-cover"
+              />
+              {/* Thanh Caption dạng viên thuốc mờ trên ảnh phóng to */}
+              {viewingPhoto.caption && viewingPhoto.caption.trim() !== '' && (
+                <div className="absolute bottom-3 inset-x-3 flex justify-center pointer-events-none">
+                  <div className="bg-black/55 backdrop-blur-md text-white border border-white/20 px-4 py-1.5 rounded-full text-xs sm:text-sm font-medium text-center shadow-lg max-w-[95%]">
+                    {viewingPhoto.caption}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL XEM TRƯỚC & NHẬP CAPTION LOCKET --- */}
+      {showLocketPreviewModal && locketPreviewUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-md" onClick={() => !isUploadingLocket && setShowLocketPreviewModal(false)}>
+          <div className="relative max-w-sm w-full bg-white rounded-3xl overflow-hidden shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-base font-bold text-gray-800 flex items-center gap-1.5">
+                <Camera size={18} className="text-amber-500" />
+                Gửi khoảnh khắc 📸
+              </h3>
+              <button 
+                onClick={() => !isUploadingLocket && setShowLocketPreviewModal(false)} 
+                disabled={isUploadingLocket}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 disabled:opacity-50"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Khung ảnh xem trước với thanh caption floating */}
+            <div className="relative aspect-square w-full rounded-2xl overflow-hidden bg-black shadow-inner mb-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img 
+                src={locketPreviewUrl} 
+                alt="Preview Locket" 
+                className="w-full h-full object-cover" 
+              />
+              {locketCaption.trim() && (
+                <div className="absolute bottom-3 inset-x-3 flex justify-center pointer-events-none">
+                  <div className="bg-black/55 backdrop-blur-md text-white border border-white/20 px-3.5 py-1 rounded-full text-xs font-medium text-center shadow-md line-clamp-2 max-w-[95%]">
+                    {locketCaption}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Ô nhập caption kèm chữ và emoji */}
+            <div className="mb-4">
+              <label className="text-[11px] font-semibold text-gray-500 mb-1 block">
+                Lời nhắn gửi đến nửa kia (tùy chọn):
+              </label>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={locketCaption} 
+                  onChange={e => setLocketCaption(e.target.value)} 
+                  placeholder="Viết lời nhắn gửi đến nửa kia... ✨" 
+                  className="w-full rounded-2xl border border-gray-200 p-2.5 text-xs outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 bg-gray-50/70"
+                  maxLength={100}
+                  disabled={isUploadingLocket}
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Các nút hành động */}
+            <div className="flex gap-2">
+              <button 
+                type="button" 
+                onClick={() => setShowLocketPreviewModal(false)} 
+                disabled={isUploadingLocket}
+                className="flex-1 py-2.5 rounded-2xl text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                Hủy
+              </button>
+              <button 
+                type="button" 
+                onClick={handleConfirmUploadLocket} 
+                disabled={isUploadingLocket}
+                className="flex-1 py-2.5 rounded-2xl text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 shadow-md transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                {isUploadingLocket ? (
+                  <span>Đang gửi... 🚀</span>
+                ) : (
+                  <span>Gửi ngay 💛</span>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
