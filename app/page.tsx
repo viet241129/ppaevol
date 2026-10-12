@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { 
   MapPin, Heart, Smile, CalendarDays, 
   Wallet, CheckSquare, Gift, LogOut, Plus, Minus, Trash2, Check, X, ExternalLink, Navigation, BellRing,
-  Info, Camera, Clock, Eye, Sparkles, Images, RotateCw
+  Info, Camera, Clock, Eye, Sparkles, Images, RotateCw, RotateCcw
 } from 'lucide-react'
 
 const MOODS = [
@@ -112,7 +112,7 @@ export default function Dashboard() {
   const [isUploadingLocket, setIsUploadingLocket] = useState(false)
   const [viewingPhoto, setViewingPhoto] = useState<any | null>(null)
   const [showAlbumModal, setShowAlbumModal] = useState(false)
-  const [albumFilter, setAlbumFilter] = useState<'all' | 'boyfriend' | 'girlfriend'>('all')
+  const [albumFilter, setAlbumFilter] = useState<'all' | 'boyfriend' | 'girlfriend' | 'trash'>('all')
   const [locketPreviewUrl, setLocketPreviewUrl] = useState<string | null>(null)
   const [locketCaption, setLocketCaption] = useState('')
   const [showLocketPreviewModal, setShowLocketPreviewModal] = useState(false)
@@ -881,7 +881,8 @@ export default function Dashboard() {
             user_id: user.id,
             user_role: role,
             photo_url: finalUrl,
-            caption: finalCaption
+            caption: finalCaption,
+            is_deleted: false
           }])
 
           if (dbErr) {
@@ -923,40 +924,54 @@ export default function Dashboard() {
     }
   }
 
-  // --- XÓA ẢNH LOCKET ---
+  // --- XÓA ẢNH LOCKET (XÓA MỀM - SOFT DELETE) ---
   const deleteLocketPhoto = async (photo: any) => {
-    if (!photo || !confirm('Bạn có chắc chắn muốn xóa ảnh khoảnh khắc này không?')) return
+    if (!photo || !confirm('Chuyển ảnh khoảnh khắc này vào thùng rác?')) return
     const senderName = role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
     try {
-      // 1. Xóa file trên Storage nếu lưu dưới dạng file url
-      if (photo.photo_url && photo.photo_url.includes('/locket/')) {
-        const parts = photo.photo_url.split('/locket/')
-        if (parts.length > 1) {
-          const rawName = parts[1].split('?')[0]
-          if (rawName) {
-            try {
-              await supabase.storage.from('locket').remove([decodeURIComponent(rawName)])
-            } catch (storageErr) {
-              console.error('Lỗi xóa file trên storage:', storageErr)
-            }
-          }
-        }
-      }
+      // Cập nhật trạng thái is_deleted: true thay vì xóa vĩnh viễn
+      const { error } = await supabase
+        .from('locket_photos')
+        .update({ is_deleted: true })
+        .eq('id', photo.id)
 
-      // 2. Xóa bản ghi trong bảng locket_photos
-      const { error } = await supabase.from('locket_photos').delete().eq('id', photo.id)
       if (error) {
-        console.error('Lỗi xóa locket photo:', error)
+        console.error('Lỗi chuyển ảnh vào thùng rác:', error)
         alert('Không thể xóa ảnh: ' + error.message)
       } else {
         if (viewingPhoto && viewingPhoto.id === photo.id) {
           setViewingPhoto(null)
         }
         await fetchLocketPhotos()
-        await logActivity('locket', 'delete', `${senderName} đã xóa một ảnh khoảnh khắc`)
+        await logActivity('locket', 'delete', `${senderName} đã chuyển một ảnh vào thùng rác`)
       }
     } catch (err: any) {
       console.error('Ngoại lệ khi xóa ảnh:', err)
+    }
+  }
+
+  // --- KHÔI PHỤC ẢNH LOCKET TỪ THÙNG RÁC ---
+  const restoreLocketPhoto = async (photo: any) => {
+    if (!photo) return
+    const senderName = role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
+    try {
+      const { error } = await supabase
+        .from('locket_photos')
+        .update({ is_deleted: false })
+        .eq('id', photo.id)
+
+      if (error) {
+        console.error('Lỗi khôi phục ảnh:', error)
+        alert('Không thể khôi phục ảnh: ' + error.message)
+      } else {
+        if (viewingPhoto && viewingPhoto.id === photo.id) {
+          setViewingPhoto({ ...viewingPhoto, is_deleted: false })
+        }
+        await fetchLocketPhotos()
+        await logActivity('locket', 'restore', `${senderName} đã khôi phục một ảnh từ thùng rác`)
+      }
+    } catch (err: any) {
+      console.error('Ngoại lệ khi khôi phục ảnh:', err)
     }
   }
 
@@ -1000,10 +1015,16 @@ export default function Dashboard() {
 
   const myWishlist = wishlistData.filter(w => user && w.user_id === user.id)
   const partnerWishlistData = wishlistData.filter(w => user && w.user_id !== user.id)
-  const latestLocketPhoto = locketPhotos.length > 0 ? locketPhotos[0] : null
 
-  // Bộ lọc ảnh cho Album Locket
+  // Tách riêng ảnh còn hiệu lực (active) và ảnh đã xóa mềm (trash)
+  const activeLocketPhotos = locketPhotos.filter(p => !p.is_deleted)
+  const deletedLocketPhotos = locketPhotos.filter(p => p.is_deleted === true)
+  const latestLocketPhoto = activeLocketPhotos.length > 0 ? activeLocketPhotos[0] : null
+
+  // Bộ lọc ảnh cho Album Locket (hỗ trợ lọc Tất cả, Bạn Trai, Bạn Gái, Thùng rác)
   const filteredAlbumPhotos = locketPhotos.filter(p => {
+    if (albumFilter === 'trash') return p.is_deleted === true
+    if (p.is_deleted) return false // Các tab khác chỉ hiển thị ảnh chưa xóa
     if (albumFilter === 'boyfriend') return p.user_role === 'boyfriend'
     if (albumFilter === 'girlfriend') return p.user_role === 'girlfriend'
     return true
@@ -1622,34 +1643,53 @@ export default function Dashboard() {
                   <Images size={20} className="text-amber-500" />
                   Album Khoảnh khắc 📸
                 </h2>
-                <p className="text-[11px] text-gray-500">Các ảnh trong 30 ngày qua ({locketPhotos.length} ảnh)</p>
+                <p className="text-[11px] text-gray-500">Các ảnh trong 30 ngày qua ({activeLocketPhotos.length} ảnh)</p>
               </div>
               <button onClick={() => setShowAlbumModal(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
                 <X size={20}/>
               </button>
             </div>
 
-            {/* 3 Tab bộ lọc */}
-            <div className="flex gap-2 mb-3 text-xs flex-shrink-0">
+            {/* 4 Tab bộ lọc (Tất cả, Bạn Trai, Bạn Gái, Thùng rác) */}
+            <div className="flex gap-1.5 mb-3 text-xs flex-shrink-0 overflow-x-auto pb-1 hide-scrollbar">
               <button 
                 onClick={() => setAlbumFilter('all')} 
-                className={`flex-1 py-1.5 rounded-xl text-center transition-colors ${albumFilter === 'all' ? 'bg-amber-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-colors ${albumFilter === 'all' ? 'bg-amber-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
-                Tất cả ({locketPhotos.length})
+                Tất cả ({activeLocketPhotos.length})
               </button>
               <button 
                 onClick={() => setAlbumFilter('boyfriend')} 
-                className={`flex-1 py-1.5 rounded-xl text-center transition-colors ${albumFilter === 'boyfriend' ? 'bg-blue-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-colors ${albumFilter === 'boyfriend' ? 'bg-blue-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
                 👦🏻 Bạn Trai
               </button>
               <button 
                 onClick={() => setAlbumFilter('girlfriend')} 
-                className={`flex-1 py-1.5 rounded-xl text-center transition-colors ${albumFilter === 'girlfriend' ? 'bg-pink-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-colors ${albumFilter === 'girlfriend' ? 'bg-pink-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
               >
                 👧🏻 Bạn Gái
               </button>
+              <button 
+                onClick={() => setAlbumFilter('trash')} 
+                className={`px-3 py-1.5 rounded-xl whitespace-nowrap flex items-center gap-1 transition-colors ${albumFilter === 'trash' ? 'bg-red-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-red-600 hover:bg-red-50'}`}
+                title="Xem ảnh đã xóa trong thùng rác"
+              >
+                <Trash2 size={13} />
+                <span>Đã xóa ({deletedLocketPhotos.length})</span>
+              </button>
             </div>
+
+            {/* Banner hướng dẫn khi ở Tab Thùng rác */}
+            {albumFilter === 'trash' && (
+              <div className="mb-2.5 px-3 py-1.5 rounded-xl bg-red-50 border border-red-100 flex items-center justify-between text-xs text-red-700 flex-shrink-0">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Trash2 size={13} className="text-red-500 flex-shrink-0" />
+                  Thùng rác ({deletedLocketPhotos.length} ảnh)
+                </span>
+                <span className="text-[10px] text-red-500">Bấm icon để khôi phục</span>
+              </div>
+            )}
 
             {/* Lưới ảnh 3 cột */}
             <div className="flex-1 overflow-y-auto pr-1 hide-scrollbar">
@@ -1659,7 +1699,7 @@ export default function Dashboard() {
                     <div 
                       key={photo.id}
                       onClick={() => setViewingPhoto(photo)}
-                      className="group relative aspect-square rounded-2xl overflow-hidden bg-gray-100 cursor-pointer shadow-sm border border-gray-100 hover:shadow-md transition-all"
+                      className={`group relative aspect-square rounded-2xl overflow-hidden cursor-pointer shadow-sm border transition-all hover:shadow-md ${photo.is_deleted ? 'bg-red-50/50 border-red-200/80 opacity-90' : 'bg-gray-100 border-gray-100'}`}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img 
@@ -1671,6 +1711,12 @@ export default function Dashboard() {
                       <div className="absolute top-1 left-1 bg-black/50 text-white text-[9px] px-1.5 py-0.5 rounded-full backdrop-blur-sm">
                         {photo.user_role === 'boyfriend' ? '👦🏻' : '👧🏻'}
                       </div>
+                      {/* Badge đã xóa nếu có */}
+                      {photo.is_deleted && (
+                        <div className="absolute top-1 left-7 bg-red-500/90 text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full backdrop-blur-sm shadow-sm">
+                          Đã xóa
+                        </div>
+                      )}
                       {/* Caption thu nhỏ nếu có */}
                       {photo.caption && photo.caption.trim() !== '' && (
                         <div className="absolute bottom-5 inset-x-1 flex justify-center pointer-events-none">
@@ -1683,20 +1729,30 @@ export default function Dashboard() {
                       <div className="absolute bottom-1 inset-x-1 bg-black/60 text-white text-[8px] text-center py-0.5 rounded backdrop-blur-sm font-medium truncate">
                         {format24h(photo.created_at)} {new Date(photo.created_at).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
                       </div>
-                      {/* Nút xóa nhanh khi hover */}
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); deleteLocketPhoto(photo); }}
-                        className="absolute top-1 right-1 p-1 rounded-full bg-red-500/80 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Xóa ảnh này"
-                      >
-                        <Trash2 size={12} />
-                      </button>
+                      {/* Nút thao tác nhanh trên ảnh */}
+                      {photo.is_deleted ? (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); restoreLocketPhoto(photo); }}
+                          className="absolute top-1 right-1 p-1 rounded-full bg-green-500 hover:bg-green-600 text-white shadow-md transition-all hover:scale-110"
+                          title="Khôi phục ảnh này"
+                        >
+                          <RotateCcw size={12} />
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); deleteLocketPhoto(photo); }}
+                          className="absolute top-1 right-1 p-1 rounded-full bg-red-500/80 hover:bg-red-600 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="Xóa ảnh này"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="py-16 text-center text-gray-400 text-xs italic">
-                  Chưa có ảnh nào trong mục này.
+                  {albumFilter === 'trash' ? 'Thùng rác trống, không có ảnh nào bị xóa.' : 'Chưa có ảnh nào trong mục này.'}
                 </div>
               )}
             </div>
@@ -1774,21 +1830,39 @@ export default function Dashboard() {
           <div className="relative max-w-sm w-full bg-white rounded-3xl overflow-hidden shadow-2xl p-4" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-100">
               <div>
-                <span className="text-xs font-bold text-gray-800">
-                  {viewingPhoto.user_role === 'boyfriend' ? '👦🏻 Bạn Trai gửi' : '👧🏻 Bạn Gái gửi'}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-gray-800">
+                    {viewingPhoto.user_role === 'boyfriend' ? '👦🏻 Bạn Trai gửi' : '👧🏻 Bạn Gái gửi'}
+                  </span>
+                  {viewingPhoto.is_deleted && (
+                    <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded-md">
+                      Thùng rác
+                    </span>
+                  )}
+                </div>
                 <p className="text-[10px] text-gray-500">
                   {formatDateTime24h(viewingPhoto.created_at)}
                 </p>
               </div>
               <div className="flex items-center gap-1.5">
-                <button 
-                  onClick={() => deleteLocketPhoto(viewingPhoto)} 
-                  className="text-red-500 hover:text-red-700 p-1.5 rounded-full bg-red-50 hover:bg-red-100 transition-colors"
-                  title="Xóa ảnh này"
-                >
-                  <Trash2 size={18} />
-                </button>
+                {viewingPhoto.is_deleted ? (
+                  <button 
+                    onClick={() => restoreLocketPhoto(viewingPhoto)} 
+                    className="flex items-center gap-1.5 text-green-700 hover:text-green-800 px-3 py-1.5 rounded-full bg-green-100 hover:bg-green-200 transition-colors text-xs font-bold shadow-sm"
+                    title="Khôi phục ảnh này"
+                  >
+                    <RotateCcw size={14} />
+                    <span>Khôi phục</span>
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => deleteLocketPhoto(viewingPhoto)} 
+                    className="text-red-500 hover:text-red-700 p-1.5 rounded-full bg-red-50 hover:bg-red-100 transition-colors"
+                    title="Chuyển vào thùng rác"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
                 <button onClick={() => setViewingPhoto(null)} className="text-gray-400 hover:text-gray-600 p-1.5 rounded-full bg-gray-100">
                   <X size={18} />
                 </button>
