@@ -137,7 +137,7 @@ async function runAllTests() {
       },
       {
         table: 'couple_todos',
-        columns: 'id, title, is_completed, created_at, created_by',
+        columns: 'id, title, is_completed, created_at',
         description: 'Module 3: Việc cần làm cùng nhau (Todo List)'
       },
       {
@@ -147,7 +147,7 @@ async function runAllTests() {
       },
       {
         table: 'special_dates',
-        columns: 'id, title, event_date, is_anniversary, created_at',
+        columns: 'id, title, event_date, created_at',
         description: 'Module 5: Ngày kỷ niệm & Đếm ngày yêu'
       },
       {
@@ -217,25 +217,27 @@ async function runAllTests() {
     // 5. TEST QUYỀN GHI/ĐỌC/XÓA (CRUD TEST)
     printHeader('5. KIỂM THỬ THAO TÁC GHI/ĐỌC/XÓA (CRUD TEST)')
     if (!isEgressRestricted) {
-      const testLogId = 'test-' + Date.now()
       try {
-        const { error: insErr } = await supabaseAdmin.from('activity_logs').insert({
-          id: testLogId,
-          action: 'HEALTH_CHECK',
-          title: 'Kiểm thử hệ thống tự động',
-          description: 'Bản ghi tạm test quyền Insert',
-          content: 'Tự động dọn dẹp ngay sau khi test'
-        })
+        const { data: insData, error: insErr } = await supabaseAdmin
+          .from('activity_logs')
+          .insert({
+            action: 'HEALTH_CHECK',
+            title: 'Kiểm thử hệ thống tự động',
+            description: 'Bản ghi tạm test quyền Insert',
+            content: 'Tự động dọn dẹp ngay sau khi test'
+          })
+          .select('id, title')
+          .single()
 
-        if (insErr) {
-          logFail('Quyền Ghi (INSERT)', insErr.message)
+        if (insErr || !insData) {
+          logFail('Quyền Ghi (INSERT)', insErr ? insErr.message : 'Không nhận được dữ liệu vừa tạo')
         } else {
           logPass('Quyền Ghi (INSERT)', 'Ghi nhật ký thành công')
 
           const { data: readData, error: readErr } = await supabaseAdmin
             .from('activity_logs')
             .select('id, title')
-            .eq('id', testLogId)
+            .eq('id', insData.id)
             .single()
 
           if (readErr || !readData) {
@@ -247,7 +249,7 @@ async function runAllTests() {
           const { error: delErr } = await supabaseAdmin
             .from('activity_logs')
             .delete()
-            .eq('id', testLogId)
+            .eq('id', insData.id)
 
           if (delErr) {
             logFail('Quyền Xóa (DELETE)', delErr.message)
