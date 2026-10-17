@@ -15,20 +15,32 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role text NOT NULL CHECK (role IN ('boyfriend', 'girlfriend')),
+  display_name text,
   mood text DEFAULT '😊',
+  mood_emoji text DEFAULT '😊',
   status_message text DEFAULT 'Bình thường',
   latitude double precision,
   longitude double precision,
+  lat double precision,
+  lng double precision,
+  is_pinged boolean DEFAULT false,
+  pinged_by text,
   updated_at timestamptz DEFAULT now(),
   created_at timestamptz DEFAULT now()
 );
 
 -- Bổ sung cột nếu bảng profiles đã tồn tại nhưng thiếu cột
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS role text CHECK (role IN ('boyfriend', 'girlfriend'));
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS display_name text;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS mood text DEFAULT '😊';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS mood_emoji text DEFAULT '😊';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status_message text DEFAULT 'Bình thường';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS latitude double precision;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS longitude double precision;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS lat double precision;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS lng double precision;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_pinged boolean DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS pinged_by text;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 
@@ -41,22 +53,26 @@ CREATE TABLE IF NOT EXISTS public.couple_wishlists (
   item_name text,
   price numeric,
   price_estimate numeric,
+  estimated_price numeric,
   link text,
   link_url text,
+  url text,
   is_bought boolean NOT NULL DEFAULT false,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
 
--- Bổ sung cột nếu thiếu (hỗ trợ cả schema title/price/link/owner_role và item_name/price_estimate/link_url)
+-- Bổ sung cột nếu thiếu (hỗ trợ đầy đủ schema contract)
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS owner_role text;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS title text;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS item_name text;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS price numeric;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS price_estimate numeric;
+ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS estimated_price numeric;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS link text;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS link_url text;
+ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS url text;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS is_bought boolean DEFAULT false;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
@@ -89,15 +105,23 @@ ALTER TABLE public.couple_todos ADD COLUMN IF NOT EXISTS updated_at timestamptz 
 CREATE TABLE IF NOT EXISTS public.love_fund (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  user_role text,
+  balance numeric,
   amount numeric NOT NULL DEFAULT 0,
-  reason text NOT NULL,
+  target_amount numeric,
+  reason text,
+  note text,
   type text NOT NULL CHECK (type IN ('income', 'expense')),
   created_at timestamptz DEFAULT now()
 );
 
 ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS user_role text;
+ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS balance numeric;
 ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS amount numeric DEFAULT 0;
+ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS target_amount numeric;
 ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS reason text;
+ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS note text;
 ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS type text CHECK (type IN ('income', 'expense'));
 ALTER TABLE public.love_fund ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 
@@ -133,14 +157,29 @@ ALTER TABLE public.locket_photos ADD COLUMN IF NOT EXISTS caption text DEFAULT '
 ALTER TABLE public.locket_photos ADD COLUMN IF NOT EXISTS is_deleted boolean DEFAULT false;
 ALTER TABLE public.locket_photos ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 
+-- Khóa cứng DB: Chặn đứng lưu chuỗi Base64 vào photo_url ở tầng Database
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_locket_photos_no_base64'
+  ) THEN
+    ALTER TABLE public.locket_photos 
+    ADD CONSTRAINT chk_locket_photos_no_base64 
+    CHECK (photo_url NOT LIKE 'data:image%');
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
+
 -- 2.7 BẢNG ACTIVITY_LOGS (Nhật ký lịch sử hoạt động các module)
 CREATE TABLE IF NOT EXISTS public.activity_logs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   user_role text,
   module text NOT NULL,
-  action_type text,
   action text,
+  action_type text,
+  title text,
   description text,
   content text,
   created_at timestamptz DEFAULT now()
@@ -149,8 +188,9 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS user_role text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS module text;
-ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS action_type text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS action text;
+ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS action_type text;
+ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS title text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS content text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();

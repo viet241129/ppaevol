@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { compressImage, validateStoragePhotoUrl } from '@/lib/image-compressor'
 import { 
   MapPin, Heart, Smile, CalendarDays, 
   Wallet, CheckSquare, Gift, LogOut, Plus, Minus, Trash2, Check, X, ExternalLink, Navigation, BellRing,
@@ -276,21 +277,21 @@ export default function Dashboard() {
         
         if (myProfile) {
           setRole(myProfile.role)
-          setMood(myProfile.mood || '😊')
+          setMood(myProfile.mood || myProfile.mood_emoji || '😊')
           setStatusMessage(myProfile.status_message || 'Bình thường')
           setMyMoodUpdatedAt(myProfile.updated_at || myProfile.created_at || null)
-          setMyLat(myProfile.latitude)
-          setMyLng(myProfile.longitude)
+          setMyLat(myProfile.latitude ?? myProfile.lat ?? null)
+          setMyLng(myProfile.longitude ?? myProfile.lng ?? null)
           setMyLocationUpdatedAt(myProfile.updated_at || null)
           setPartnerRole(myProfile.role === 'boyfriend' ? 'girlfriend' : 'boyfriend')
         }
         if (otherProfile) {
           setPartnerId(otherProfile.id)
-          setPartnerMood(otherProfile.mood || '😊')
+          setPartnerMood(otherProfile.mood || otherProfile.mood_emoji || '😊')
           setPartnerStatus(otherProfile.status_message || 'Bình thường')
           setPartnerMoodUpdatedAt(otherProfile.updated_at || otherProfile.created_at || null)
-          setPartnerLat(otherProfile.latitude)
-          setPartnerLng(otherProfile.longitude)
+          setPartnerLat(otherProfile.latitude ?? otherProfile.lat ?? null)
+          setPartnerLng(otherProfile.longitude ?? otherProfile.lng ?? null)
           setPartnerLocationUpdatedAt(otherProfile.updated_at || null)
         }
       }
@@ -619,12 +620,23 @@ export default function Dashboard() {
     const senderName = role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
     try {
       const mappedType = fundType === 'Thu' ? 'income' : 'expense'
-      const { error } = await supabase.from('love_fund').insert([{
+      let { error } = await supabase.from('love_fund').insert([{
         user_id: user?.id || null,
+        user_role: role,
         amount: Number(fundAmount),
         reason: fundReason,
+        note: fundReason,
         type: mappedType
       }])
+
+      if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
+        const retryRes = await supabase.from('love_fund').insert([{
+          amount: Number(fundAmount),
+          reason: fundReason,
+          type: mappedType
+        }])
+        error = retryRes.error
+      }
       if (error) console.error('❌ Lỗi thêm Love Fund:', error)
       else {
         setShowFundForm(false)
@@ -717,8 +729,10 @@ export default function Dashboard() {
       item_name: itemName,
       price: itemPrice,
       price_estimate: itemPrice,
+      estimated_price: itemPrice,
       link: itemLink,
       link_url: itemLink,
+      url: itemLink,
       owner_role: userRole,
       is_bought: false
     }
@@ -888,98 +902,71 @@ export default function Dashboard() {
     const finalCaption = locketCaption.trim()
 
     try {
-      const img = new window.Image()
-      img.onload = async () => {
-        try {
-          const canvas = document.createElement('canvas')
-          const maxDim = 900
-          let width = img.width
-          let height = img.height
-          if (width > maxDim || height > maxDim) {
-            if (width > height) {
-              height = Math.round((height * maxDim) / width)
-              width = maxDim
-            } else {
-              width = Math.round((width * maxDim) / height)
-              height = maxDim
-            }
-          }
-          canvas.width = width
-          canvas.height = height
-          const ctx = canvas.getContext('2d')
-          ctx?.drawImage(img, 0, 0, width, height)
+      // 1. Nén ảnh qua tiện ích Canvas chuyên dụng:
+      // - Resize chiều dài nhất về tối đa 1080px
+      // - Định dạng image/jpeg với initial quality: 0.7
+      // - Kiểm tra dung lượng đầu ra: nếu > 200KB thì nén tiếp về quality: 0.5
+      const compressionResult = await compressImage(locketPreviewUrl, {
+        maxDimension: 1080,
+        initialQuality: 0.7,
+        fallbackQuality: 0.5,
+        maxSizeBytes: 200 * 1024,
+        format: 'image/jpeg'
+      })
 
-          // Nén canvas sang blob trực tiếp để tối ưu bộ nhớ trên thiết bị di động (đặc biệt iOS Safari)
-          const blob = await new Promise<Blob | null>((resolve) => {
-            canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.75)
-          })
+      const blob = compressionResult.blob
 
-          if (!blob) {
-            throw new Error('Không thể nén ảnh từ Canvas.')
-          }
+      // 2. Upload Blob nhị phân vào bucket Storage 'locket' với cacheControl: '31536000' (1 năm)
+      const fileName = `${user.id}-${Date.now()}.jpg`
+      const { data: storageData, error: storageErr } = await supabase.storage.from('locket').upload(fileName, blob, {
+        contentType: 'image/jpeg',
+        cacheControl: '31536000',
+        upsert: true
+      })
 
-          // Upload trực tiếp Blob nhị phân vào bucket Storage 'locket' (chống tràn băng thông và DB)
-          const fileName = `${user.id}-${Date.now()}.jpg`
-          const { data: storageData, error: storageErr } = await supabase.storage.from('locket').upload(fileName, blob, {
-            contentType: 'image/jpeg',
-            upsert: true
-          })
+      if (storageErr || !storageData) {
+        console.error('Lỗi upload storage:', storageErr)
+        throw new Error(`Lỗi tải ảnh lên Storage (${storageErr?.message || 'Không xác định'}). Vui lòng kiểm tra bucket "locket" trên Supabase!`)
+      }
 
-          if (storageErr || !storageData) {
-            console.error('Lỗi upload storage:', storageErr)
-            throw new Error(`Lỗi tải ảnh lên Storage (${storageErr?.message || 'Không xác định'}). Vui lòng kiểm tra bucket "locket" trên Supabase!`)
-          }
+      // 3. Lấy Public URL ngắn từ Storage
+      const { data: pubData } = supabase.storage.from('locket').getPublicUrl(fileName)
+      const finalUrl = pubData?.publicUrl
 
-          const { data: pubData } = supabase.storage.from('locket').getPublicUrl(fileName)
-          const finalUrl = pubData?.publicUrl
+      // 4. BỘ LỌC KIỂM TRA (VALIDATOR): Chặn đứng ngay lập tức nếu phát hiện chuỗi Base64
+      validateStoragePhotoUrl(finalUrl)
 
-          if (!finalUrl) {
-            throw new Error('Không lấy được đường dẫn công khai (Public URL) từ Supabase Storage.')
-          }
+      // 5. CHỈ lưu link URL ngắn vào bảng locket_photos
+      const { error: dbErr } = await supabase.from('locket_photos').insert([{
+        user_id: user.id,
+        user_role: role,
+        photo_url: finalUrl,
+        caption: finalCaption,
+        is_deleted: false
+      }])
 
-          const { error: dbErr } = await supabase.from('locket_photos').insert([{
-            user_id: user.id,
-            user_role: role,
-            photo_url: finalUrl,
-            caption: finalCaption,
-            is_deleted: false
-          }])
+      if (dbErr) {
+        console.error('❌ Lỗi lưu locket photo:', dbErr)
+        alert('Lỗi lưu ảnh: ' + dbErr.message)
+      } else {
+        setShowLocketPreviewModal(false)
+        setLocketPreviewUrl(null)
+        setLocketCaption('')
+        await cleanupOldLocketPhotos()
+        await fetchLocketPhotos()
 
-          if (dbErr) {
-            console.error('❌ Lỗi lưu locket photo:', dbErr)
-            alert('Lỗi lưu ảnh: ' + dbErr.message)
-          } else {
-            setShowLocketPreviewModal(false)
-            setLocketPreviewUrl(null)
-            setLocketCaption('')
-            await cleanupOldLocketPhotos()
-            await fetchLocketPhotos()
-
-            if (finalCaption) {
-              await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi khoảnh khắc: ${finalCaption}`)
-              await logActivity('locket', 'create', `${senderName} đăng khoảnh khắc: "${finalCaption}"`)
-            } else {
-              await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi một khoảnh khắc ảnh mới`)
-              await logActivity('locket', 'create', `${senderName} đăng một khoảnh khắc ảnh mới`)
-            }
-          }
-        } catch (innerErr: any) {
-          console.error('Lỗi nén và lưu ảnh:', innerErr)
-          alert('Lỗi xử lý ảnh: ' + (innerErr?.message || 'Không xác định'))
-        } finally {
-          setIsUploadingLocket(false)
+        if (finalCaption) {
+          await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi khoảnh khắc: ${finalCaption}`)
+          await logActivity('locket', 'create', `${senderName} đăng khoảnh khắc: "${finalCaption}"`)
+        } else {
+          await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi một khoảnh khắc ảnh mới`)
+          await logActivity('locket', 'create', `${senderName} đăng một khoảnh khắc ảnh mới`)
         }
       }
-
-      img.onerror = () => {
-        setIsUploadingLocket(false)
-        alert('Không thể đọc hoặc xử lý ảnh này. Vui lòng chọn lại ảnh khác.')
-      }
-
-      img.src = locketPreviewUrl
     } catch (err: any) {
-      console.error('Lỗi upload ảnh:', err)
-      alert('Lỗi upload: ' + err.message)
+      console.error('Lỗi nén và lưu ảnh:', err)
+      alert('Lỗi xử lý ảnh: ' + (err?.message || 'Không xác định'))
+    } finally {
       setIsUploadingLocket(false)
     }
   }
