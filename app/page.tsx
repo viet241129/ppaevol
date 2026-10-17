@@ -854,33 +854,32 @@ export default function Dashboard() {
           const ctx = canvas.getContext('2d')
           ctx?.drawImage(img, 0, 0, width, height)
 
-          // Nén canvas sang blob trực tiếp để tối ưu bộ nhớ trên iOS Safari
-          const blobPromise = new Promise<Blob | null>((resolve) => {
+          // Nén canvas sang blob trực tiếp để tối ưu bộ nhớ trên thiết bị di động (đặc biệt iOS Safari)
+          const blob = await new Promise<Blob | null>((resolve) => {
             canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.75)
           })
-          const blob = await blobPromise
-          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.75)
 
-          let finalUrl = compressedDataUrl
+          if (!blob) {
+            throw new Error('Không thể nén ảnh từ Canvas.')
+          }
 
-          if (blob) {
-            try {
-              const fileName = `${user.id}-${Date.now()}.jpg`
-              const { data: storageData, error: storageErr } = await supabase.storage.from('locket').upload(fileName, blob, {
-                contentType: 'image/jpeg',
-                upsert: true
-              })
-              if (!storageErr && storageData) {
-                const { data: pubData } = supabase.storage.from('locket').getPublicUrl(fileName)
-                if (pubData?.publicUrl) {
-                  finalUrl = pubData.publicUrl
-                }
-              } else if (storageErr) {
-                console.warn('Storage upload error, fallback to dataURL:', storageErr)
-              }
-            } catch (storageErr) {
-              console.log('Storage fallback to dataURL:', storageErr)
-            }
+          // Upload trực tiếp Blob nhị phân vào bucket Storage 'locket' (chống tràn băng thông và DB)
+          const fileName = `${user.id}-${Date.now()}.jpg`
+          const { data: storageData, error: storageErr } = await supabase.storage.from('locket').upload(fileName, blob, {
+            contentType: 'image/jpeg',
+            upsert: true
+          })
+
+          if (storageErr || !storageData) {
+            console.error('Lỗi upload storage:', storageErr)
+            throw new Error(`Lỗi tải ảnh lên Storage (${storageErr?.message || 'Không xác định'}). Vui lòng kiểm tra bucket "locket" trên Supabase!`)
+          }
+
+          const { data: pubData } = supabase.storage.from('locket').getPublicUrl(fileName)
+          const finalUrl = pubData?.publicUrl
+
+          if (!finalUrl) {
+            throw new Error('Không lấy được đường dẫn công khai (Public URL) từ Supabase Storage.')
           }
 
           const { error: dbErr } = await supabase.from('locket_photos').insert([{
