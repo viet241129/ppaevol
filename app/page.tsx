@@ -933,18 +933,6 @@ export default function Dashboard() {
         await cleanupOldLocketPhotos()
         await fetchLocketPhotos()
 
-        // 6. Tự động đồng bộ bản sao sang Google Drive thư mục "Stuff" ở chế độ nền (không làm gián đoạn UI)
-        fetch('/api/backup-to-drive', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            photoUrl: finalUrl,
-            role: role,
-            caption: finalCaption
-          })
-        }).catch(driveErr => {
-          console.error('Lỗi sao lưu ngầm sang Google Drive:', driveErr)
-        })
 
         if (finalCaption) {
           await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi khoảnh khắc: ${finalCaption}`)

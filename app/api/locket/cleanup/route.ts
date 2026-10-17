@@ -60,22 +60,22 @@ async function handleCleanup() {
       }
     }
 
-    // 4. Đánh dấu is_deleted = true trên bảng locket_photos
+    // 4. Xóa vĩnh viễn (Hard Delete) bản ghi khỏi bảng locket_photos
     const oldIds = oldPhotos.map(p => p.id)
-    const { error: updateErr } = await supabase
+    const { error: deleteErr } = await supabase
       .from('locket_photos')
-      .update({ is_deleted: true })
+      .delete()
       .in('id', oldIds)
 
-    if (updateErr) {
-      return NextResponse.json({ success: false, error: updateErr.message }, { status: 500 })
+    if (deleteErr) {
+      return NextResponse.json({ success: false, error: deleteErr.message }, { status: 500 })
     }
 
     return NextResponse.json({
       success: true,
-      updatedCount: oldPhotos.length,
+      deletedCount: oldPhotos.length,
       filesRemoved: filePathsToRemove.length,
-      message: `Đã dọn file storage và đánh dấu xóa ${oldPhotos.length} ảnh cũ hơn 7 ngày.`
+      message: `Đã dọn sạch file storage và xóa vĩnh viễn ${oldPhotos.length} ảnh cũ hơn 7 ngày khỏi hệ thống.`
     })
   } catch (err: any) {
     console.error('Lỗi API locket cleanup:', err)
