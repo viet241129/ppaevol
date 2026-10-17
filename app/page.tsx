@@ -346,7 +346,13 @@ export default function Dashboard() {
 
   const fetchLocketPhotos = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('locket_photos').select('*').order('created_at', { ascending: false }).limit(100)
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+      const { data, error } = await supabase
+        .from('locket_photos')
+        .select('*')
+        .gte('created_at', sevenDaysAgo)
+        .order('created_at', { ascending: false })
+        .limit(100)
       if (error) console.error('❌ Lỗi lấy Locket:', error)
       else if (data) setLocketPhotos(data)
     } catch (err) {
@@ -840,40 +846,12 @@ export default function Dashboard() {
     }
   }
 
-  // --- TỰ ĐỘNG DỌN DẸP ẢNH LOCKET CŨ HƠN 30 NGÀY ---
+  // --- TỰ ĐỘNG DỌN DẸP ẢNH LOCKET CŨ HƠN 7 NGÀY ---
   const cleanupOldLocketPhotos = async () => {
     try {
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      
-      const { data: oldPhotos, error: fetchErr } = await supabase
-        .from('locket_photos')
-        .select('id, photo_url')
-        .lt('created_at', thirtyDaysAgo)
-
-      if (fetchErr || !oldPhotos || oldPhotos.length === 0) return
-
-      const filePathsToRemove: string[] = []
-      oldPhotos.forEach(p => {
-        if (p.photo_url && p.photo_url.includes('/locket/')) {
-          const parts = p.photo_url.split('/locket/')
-          if (parts.length > 1) {
-            const rawName = parts[1].split('?')[0]
-            if (rawName) filePathsToRemove.push(decodeURIComponent(rawName))
-          }
-        }
+      fetch('/api/locket/cleanup', { method: 'POST' }).catch(err => {
+        console.error('Lỗi gọi API dọn dẹp Locket 7 ngày:', err)
       })
-
-      if (filePathsToRemove.length > 0) {
-        try {
-          await supabase.storage.from('locket').remove(filePathsToRemove)
-        } catch (storageErr) {
-          console.error('Lỗi xóa storage:', storageErr)
-        }
-      }
-
-      const oldIds = oldPhotos.map(p => p.id)
-      await supabase.from('locket_photos').delete().in('id', oldIds)
-      console.log(`Đã dọn dẹp ${oldPhotos.length} ảnh Locket cũ hơn 30 ngày.`)
     } catch (err) {
       console.error('Ngoại lệ khi dọn dẹp ảnh cũ:', err)
     }
@@ -905,12 +883,12 @@ export default function Dashboard() {
       // 1. Nén ảnh qua tiện ích Canvas chuyên dụng:
       // - Resize chiều dài nhất về tối đa 1080px
       // - Định dạng image/jpeg với initial quality: 0.7
-      // - Kiểm tra dung lượng đầu ra: nếu > 200KB thì nén tiếp về quality: 0.5
+      // - Kiểm tra dung lượng đầu ra: nếu > 150KB thì nén tiếp về quality: 0.5 (< 150KB)
       const compressionResult = await compressImage(locketPreviewUrl, {
         maxDimension: 1080,
         initialQuality: 0.7,
         fallbackQuality: 0.5,
-        maxSizeBytes: 200 * 1024,
+        maxSizeBytes: 150 * 1024,
         format: 'image/jpeg'
       })
 
@@ -954,6 +932,19 @@ export default function Dashboard() {
         setLocketCaption('')
         await cleanupOldLocketPhotos()
         await fetchLocketPhotos()
+
+        // 6. Tự động đồng bộ bản sao sang Google Drive thư mục "Stuff" ở chế độ nền (không làm gián đoạn UI)
+        fetch('/api/backup-to-drive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            photoUrl: finalUrl,
+            role: role,
+            caption: finalCaption
+          })
+        }).catch(driveErr => {
+          console.error('Lỗi sao lưu ngầm sang Google Drive:', driveErr)
+        })
 
         if (finalCaption) {
           await sendPushNotification('Khoảnh khắc mới 📸', `${senderName} vừa gửi khoảnh khắc: ${finalCaption}`)
@@ -1063,23 +1054,30 @@ export default function Dashboard() {
   const myWishlist = wishlistData.filter(w => user && (w.user_id === user.id || (w.owner_role && w.owner_role === role)))
   const partnerWishlistData = wishlistData.filter(w => user && (w.user_id ? w.user_id !== user.id : (w.owner_role && w.owner_role !== role)))
 
-  // Tách riêng ảnh còn hiệu lực (active) và ảnh đã xóa mềm (trash) trong vòng 30 ngày
-  const activeLocketPhotos = locketPhotos.filter(p => !p.is_deleted)
-  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000
+  // Tách riêng ảnh còn hiệu lực (active) và ảnh đã xóa mềm (trash) trong vòng 7 ngày
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
+  const activeLocketPhotos = locketPhotos.filter(p => {
+    if (p.is_deleted) return false
+    const createdAtTime = new Date(p.created_at).getTime()
+    return isNaN(createdAtTime) || (Date.now() - createdAtTime <= sevenDaysMs)
+  })
   const deletedLocketPhotos = locketPhotos.filter(p => {
     if (!p.is_deleted) return false
     const createdAtTime = new Date(p.created_at).getTime()
-    return !isNaN(createdAtTime) && (Date.now() - createdAtTime <= thirtyDaysMs)
+    return isNaN(createdAtTime) || (Date.now() - createdAtTime <= sevenDaysMs)
   })
   const latestLocketPhoto = activeLocketPhotos.length > 0 ? activeLocketPhotos[0] : null
 
-  // Bộ lọc ảnh cho Album Locket (hỗ trợ lọc Tất cả, Bạn Trai, Bạn Gái, và Thùng rác 30 ngày cho Bạn Trai)
+  // Bộ lọc ảnh cho Album Locket (hỗ trợ lọc Tất cả, Bạn Trai, Bạn Gái trong 7 ngày, và Thùng rác 7 ngày cho Bạn Trai)
   const filteredAlbumPhotos = locketPhotos.filter(p => {
+    const createdAtTime = new Date(p.created_at).getTime()
+    const isWithin7Days = isNaN(createdAtTime) || (Date.now() - createdAtTime <= sevenDaysMs)
+    if (!isWithin7Days) return false
+
     if (albumFilter === 'trash') {
       // Phân quyền: Chỉ Bạn Trai mới được xem thùng rác
       if (role !== 'boyfriend') return false
-      const createdAtTime = new Date(p.created_at).getTime()
-      return p.is_deleted === true && !isNaN(createdAtTime) && (Date.now() - createdAtTime <= thirtyDaysMs)
+      return p.is_deleted === true
     }
     if (p.is_deleted) return false // Các tab thông thường chỉ hiển thị ảnh chưa xóa (active)
     if (albumFilter === 'boyfriend') return p.user_role === 'boyfriend'
@@ -1700,7 +1698,7 @@ export default function Dashboard() {
                   <Images size={20} className="text-amber-500" />
                   Album Khoảnh khắc 📸
                 </h2>
-                <p className="text-[11px] text-gray-500">Các ảnh trong 30 ngày qua ({activeLocketPhotos.length} ảnh)</p>
+                <p className="text-[11px] text-gray-500">Các ảnh trong 7 ngày qua ({activeLocketPhotos.length} ảnh)</p>
               </div>
               <button onClick={() => setShowAlbumModal(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
                 <X size={20}/>

@@ -63,7 +63,7 @@ export async function compressImage(
   const maxDim = options.maxDimension ?? 1080
   const initialQuality = options.initialQuality ?? 0.7
   const fallbackQuality = options.fallbackQuality ?? 0.5
-  const maxSizeBytes = options.maxSizeBytes ?? 200 * 1024 // 200 KB
+  const maxSizeBytes = options.maxSizeBytes ?? 150 * 1024 // 150 KB
   const format = options.format ?? 'image/jpeg'
 
   let srcUrl = ''
@@ -96,10 +96,10 @@ export async function compressImage(
     }
 
     // 2. Vẽ lên Canvas
-    const canvas = document.createElement('canvas')
+    let canvas = document.createElement('canvas')
     canvas.width = width
     canvas.height = height
-    const ctx = canvas.getContext('2d')
+    let ctx = canvas.getContext('2d')
     if (!ctx) {
       throw new Error('Không thể tạo 2D context cho Canvas.')
     }
@@ -112,16 +112,35 @@ export async function compressImage(
     // 3. Nén lần 1: quality: 0.7
     let blob = await canvasToBlob(canvas, format, initialQuality)
 
-    // 4. Kiểm tra dung lượng đầu ra: nếu > 200KB thì nén tiếp về quality: 0.5
+    // 4. Kiểm tra dung lượng đầu ra: nếu > 150KB thì nén tiếp về quality: 0.5
     if (blob.size > maxSizeBytes) {
-      console.log(`[ImageCompressor] Ảnh nén lần 1 là ${(blob.size / 1024).toFixed(1)}KB (> 200KB). Nén tiếp về quality: ${fallbackQuality}...`)
+      console.log(`[ImageCompressor] Ảnh nén lần 1 là ${(blob.size / 1024).toFixed(1)}KB (> 150KB). Nén tiếp về quality: ${fallbackQuality}...`)
       blob = await canvasToBlob(canvas, format, fallbackQuality)
     }
 
-    // Nếu vẫn > 200KB (đối với ảnh quá nhiều chi tiết), nén thêm một nấc an toàn 0.4
+    // 5. Nếu vẫn > 150KB (đối với ảnh quá nhiều chi tiết), giảm chất lượng về 0.35
     if (blob.size > maxSizeBytes) {
-      console.log(`[ImageCompressor] Dung lượng vẫn ${(blob.size / 1024).toFixed(1)}KB. Tối ưu thêm về quality: 0.4...`)
-      blob = await canvasToBlob(canvas, format, 0.4)
+      console.log(`[ImageCompressor] Dung lượng vẫn ${(blob.size / 1024).toFixed(1)}KB. Tối ưu thêm về quality: 0.35...`)
+      blob = await canvasToBlob(canvas, format, 0.35)
+    }
+
+    // 6. Nếu vẫn vượt 150KB, scale kích thước về 800px
+    if (blob.size > maxSizeBytes) {
+      const scaleDown = 800 / Math.max(width, height)
+      const newW = Math.round(width * scaleDown)
+      const newH = Math.round(height * scaleDown)
+      const smallerCanvas = document.createElement('canvas')
+      smallerCanvas.width = newW
+      smallerCanvas.height = newH
+      const sCtx = smallerCanvas.getContext('2d')
+      if (sCtx) {
+        sCtx.imageSmoothingEnabled = true
+        sCtx.imageSmoothingQuality = 'high'
+        sCtx.drawImage(canvas, 0, 0, newW, newH)
+        blob = await canvasToBlob(smallerCanvas, format, 0.6)
+        width = newW
+        height = newH
+      }
     }
 
     return {
