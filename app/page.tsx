@@ -1730,7 +1730,7 @@ export default function Dashboard() {
                 <button 
                   onClick={() => setAlbumFilter('trash')} 
                   className={`px-3 py-1.5 rounded-xl whitespace-nowrap flex items-center gap-1 transition-colors ${albumFilter === 'trash' ? 'bg-red-500 text-white font-bold shadow-sm' : 'bg-gray-100 text-red-600 hover:bg-red-50'}`}
-                  title="Xem ảnh đã xóa trong 30 ngày qua (Chỉ Bạn Trai)"
+                  title="Xem ảnh đã xóa trong 7 ngày qua (Chỉ Bạn Trai)"
                 >
                   <Trash2 size={13} />
                   <span>Đã xóa ({deletedLocketPhotos.length})</span>
@@ -1743,7 +1743,7 @@ export default function Dashboard() {
               <div className="mb-2.5 px-3 py-1.5 rounded-xl bg-red-50 border border-red-100 flex items-center justify-between text-xs text-red-700 flex-shrink-0">
                 <span className="flex items-center gap-1.5 font-medium">
                   <Trash2 size={13} className="text-red-500 flex-shrink-0" />
-                  Thùng rác ({deletedLocketPhotos.length} ảnh trong 30 ngày)
+                  Thùng rác ({deletedLocketPhotos.length} ảnh trong 7 ngày)
                 </span>
                 <span className="text-[10px] text-red-500 font-medium">Bấm icon để khôi phục</span>
               </div>
@@ -1812,7 +1812,7 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="py-16 text-center text-gray-400 text-xs italic">
-                  {albumFilter === 'trash' ? 'Thùng rác trống, không có ảnh nào trong 30 ngày qua.' : 'Chưa có ảnh nào trong mục này.'}
+                  {albumFilter === 'trash' ? 'Thùng rác trống, không có ảnh nào trong 7 ngày qua.' : 'Chưa có ảnh nào trong mục này.'}
                 </div>
               )}
             </div>
