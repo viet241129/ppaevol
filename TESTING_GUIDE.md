@@ -12,13 +12,17 @@ Hệ thống đã được tích hợp bộ script kiểm tra tự động tại
 Mở terminal tại thư mục gốc của dự án và chạy một trong các lệnh sau:
 
 ```bash
-# Chạy bài test sức khỏe toàn diện hệ thống:
-npm.cmd test
+# Chạy bài test E2E & Tự dọn dẹp (Health Check & Auto Teardown):
+npm.cmd run test:health
 # hoặc:
-node scripts/test-all.mjs
+node scripts/test-health.mjs
 
-# Chạy bài test kèm kiểm tra biên dịch Next.js (TypeScript & Production Build):
-node scripts/test-all.mjs --build
+# Gọi API ngầm từ trình duyệt hoặc webhook:
+GET /api/test/run hoặc POST /api/test/run
+
+# Chạy bài kiểm tra tĩnh & Schema Contract:
+npm.cmd test
+node scripts/test-all.mjs
 ```
 
 ### 2. Bất cứ khi nào bạn cần kiểm tra:
