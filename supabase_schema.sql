@@ -36,22 +36,38 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at timestamptz DEFA
 CREATE TABLE IF NOT EXISTS public.couple_wishlists (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
-  item_name text NOT NULL,
+  owner_role text,
+  title text,
+  item_name text,
+  price numeric,
   price_estimate numeric,
+  link text,
   link_url text,
   is_bought boolean NOT NULL DEFAULT false,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
 
--- Bổ sung cột nếu thiếu (đặc biệt item_name, price_estimate, link_url)
+-- Bổ sung cột nếu thiếu (hỗ trợ cả schema title/price/link/owner_role và item_name/price_estimate/link_url)
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS owner_role text;
+ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS title text;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS item_name text;
+ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS price numeric;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS price_estimate numeric;
+ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS link text;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS link_url text;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS is_bought boolean DEFAULT false;
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 ALTER TABLE public.couple_wishlists ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
+-- Bỏ ràng buộc NOT NULL nếu trước đó cột item_name hoặc title có NOT NULL
+DO $$
+BEGIN
+  ALTER TABLE public.couple_wishlists ALTER COLUMN item_name DROP NOT NULL;
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
 
 -- 2.3 BẢNG COUPLE_TODOS (Việc cần làm chung)
 CREATE TABLE IF NOT EXISTS public.couple_todos (
@@ -123,8 +139,10 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
   user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   user_role text,
   module text NOT NULL,
-  action_type text NOT NULL,
-  description text NOT NULL,
+  action_type text,
+  action text,
+  description text,
+  content text,
   created_at timestamptz DEFAULT now()
 );
 
@@ -132,8 +150,18 @@ ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS user_id uuid REFERENCE
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS user_role text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS module text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS action_type text;
+ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS action text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS content text;
 ALTER TABLE public.activity_logs ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+
+DO $$
+BEGIN
+  ALTER TABLE public.activity_logs ALTER COLUMN action_type DROP NOT NULL;
+  ALTER TABLE public.activity_logs ALTER COLUMN description DROP NOT NULL;
+EXCEPTION
+  WHEN OTHERS THEN NULL;
+END $$;
 
 -- 2.8 BẢNG PUSH_SUBSCRIPTIONS (Web Push Notification)
 CREATE TABLE IF NOT EXISTS public.push_subscriptions (

@@ -210,23 +210,60 @@ export default function Dashboard() {
     }
   }, [partnerId, role])
 
+  // --- FETCH ACTIVITY LOGS ---
+  const fetchActivityLogs = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50)
+      if (error) console.error('❌ Lỗi lấy Activity Logs:', error)
+      else if (data) setActivityLogs(data)
+    } catch (err) {
+      console.error('❌ Lỗi ngoại lệ Activity Logs:', err)
+    }
+  }, [supabase])
+
   // --- HÀM GHI NHẬN ACTIVITY LOG ---
   const logActivity = useCallback(async (moduleName: string, actionType: string, description: string) => {
-    if (!user) return
+    const currentUser = userRef.current || user
+    if (!currentUser) return
     try {
-      const { error } = await supabase.from('activity_logs').insert([{
-        user_id: user.id,
-        user_role: role,
+      const currentRole = role || 'boyfriend'
+      const logPayload: any = {
+        user_id: currentUser.id,
+        user_role: currentRole,
         module: moduleName,
         action_type: actionType,
         description: description
-      }])
-      if (error) console.error('Lỗi ghi activity log:', error)
-      else fetchActivityLogs()
+      }
+
+      let { error } = await supabase.from('activity_logs').insert([logPayload])
+
+      // Fallback tương thích nếu database cũ dùng 'action' thay vì 'action_type' hoặc 'content' thay vì 'description'
+      if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
+        console.warn('Lỗi ghi activity log với schema chuẩn, thử lại fallback:', error.message)
+        const fallbackPayload: any = {
+          user_id: currentUser.id,
+          user_role: currentRole,
+          module: moduleName,
+          action: actionType,
+          content: description
+        }
+        const retryRes = await supabase.from('activity_logs').insert([fallbackPayload])
+        error = retryRes.error
+      }
+
+      if (error) {
+        console.error('❌ Lỗi ghi activity log:', error)
+      } else {
+        await fetchActivityLogs()
+      }
     } catch (err) {
-      console.error('Ngoại lệ ghi activity log:', err)
+      console.error('❌ Ngoại lệ ghi activity log:', err)
     }
-  }, [role, supabase, user])
+  }, [fetchActivityLogs, role, supabase, user])
 
   // --- FETCH DỮ LIỆU ---
   const fetchProfiles = useCallback(async (currentUser: any) => {
@@ -316,15 +353,6 @@ export default function Dashboard() {
     }
   }, [supabase])
 
-  const fetchActivityLogs = useCallback(async () => {
-    try {
-      const { data, error } = await supabase.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(50)
-      if (error) console.error('❌ Lỗi lấy Activity Logs:', error)
-      else if (data) setActivityLogs(data)
-    } catch (err) {
-      console.error('❌ Lỗi ngoại lệ Activity Logs:', err)
-    }
-  }, [supabase])
 
   const fetchUserAndData = useCallback(async () => {
     try {
@@ -592,6 +620,7 @@ export default function Dashboard() {
     try {
       const mappedType = fundType === 'Thu' ? 'income' : 'expense'
       const { error } = await supabase.from('love_fund').insert([{
+        user_id: user?.id || null,
         amount: Number(fundAmount),
         reason: fundReason,
         type: mappedType
@@ -677,16 +706,42 @@ export default function Dashboard() {
     e.preventDefault()
     if (!wlName || !user || !role) return
     const senderName = role === 'boyfriend' ? 'Bạn Trai' : 'Bạn Gái'
-    const itemName = wlName
+    const itemName = wlName.trim()
+    const itemPrice = wlPrice ? Number(wlPrice) : null
+    const itemLink = wlLink ? wlLink.trim() : null
+    const userRole = role
+
+    const payload: any = {
+      user_id: user.id,
+      title: itemName,
+      item_name: itemName,
+      price: itemPrice,
+      price_estimate: itemPrice,
+      link: itemLink,
+      link_url: itemLink,
+      owner_role: userRole,
+      is_bought: false
+    }
+
     try {
-      const { error } = await supabase.from('couple_wishlists').insert([{ 
-        user_id: user.id, 
-        owner_role: role,
-        item_name: wlName,
-        price_estimate: wlPrice ? Number(wlPrice) : null,
-        link_url: wlLink || null,
-        is_bought: false
-      }])
+      let { error } = await supabase.from('couple_wishlists').insert([payload])
+
+      // Fallback nếu schema DB chỉ có các cột cơ bản
+      if (error && (error.message?.includes('column') || error.code === 'PGRST204')) {
+        console.warn('Lỗi thêm Wishlist với payload đầy đủ, thử lại fallback:', error.message)
+        const fallbackPayload = {
+          user_id: user.id,
+          title: itemName,
+          item_name: itemName,
+          price: itemPrice,
+          link: itemLink,
+          owner_role: userRole,
+          is_bought: false
+        }
+        const retryRes = await supabase.from('couple_wishlists').insert([fallbackPayload])
+        error = retryRes.error
+      }
+
       if (error) {
         console.error('❌ Lỗi thêm Wishlist:', error)
         alert(`Lỗi khi thêm Wishlist: ${error.message}`)
@@ -1018,8 +1073,8 @@ export default function Dashboard() {
     }
   }
 
-  const myWishlist = wishlistData.filter(w => user && w.user_id === user.id)
-  const partnerWishlistData = wishlistData.filter(w => user && w.user_id !== user.id)
+  const myWishlist = wishlistData.filter(w => user && (w.user_id === user.id || (w.owner_role && w.owner_role === role)))
+  const partnerWishlistData = wishlistData.filter(w => user && (w.user_id ? w.user_id !== user.id : (w.owner_role && w.owner_role !== role)))
 
   // Tách riêng ảnh còn hiệu lực (active) và ảnh đã xóa mềm (trash) trong vòng 30 ngày
   const activeLocketPhotos = locketPhotos.filter(p => !p.is_deleted)
@@ -1602,16 +1657,16 @@ export default function Dashboard() {
                 {partnerWishlistData.map(w => (
                   <div key={w.id} className="flex items-center justify-between bg-red-50 p-2 rounded-xl border border-red-100">
                     <div className="flex items-center gap-2 overflow-hidden">
-                      <input type="checkbox" checked={w.is_bought} onChange={() => toggleWishlistBought(w.id, w.is_bought, w.item_name)} className="h-4 w-4 accent-red-500 flex-shrink-0" />
+                      <input type="checkbox" checked={w.is_bought} onChange={() => toggleWishlistBought(w.id, w.is_bought, w.item_name || w.title || 'Món đồ')} className="h-4 w-4 accent-red-500 flex-shrink-0" />
                       <div className="flex flex-col overflow-hidden">
-                        <span className={`text-xs font-semibold truncate ${w.is_bought ? 'line-through text-gray-400' : 'text-red-700'}`}>{w.item_name}</span>
+                        <span className={`text-xs font-semibold truncate ${w.is_bought ? 'line-through text-gray-400' : 'text-red-700'}`}>{w.item_name || w.title}</span>
                         <div className="flex items-center gap-2">
-                          {w.price_estimate && <span className="text-[10px] text-red-500">{Number(w.price_estimate).toLocaleString('vi-VN')} ₫</span>}
+                          {(w.price_estimate || w.price) && <span className="text-[10px] text-red-500">{Number(w.price_estimate || w.price).toLocaleString('vi-VN')} ₫</span>}
                           <span className="text-[9px] text-gray-400">{formatDateTime24h(w.created_at)}</span>
                         </div>
                       </div>
                     </div>
-                    {w.link_url && <a href={w.link_url} target="_blank" rel="noreferrer" className="text-red-400 hover:text-red-600 ml-2"><ExternalLink size={14}/></a>}
+                    {(w.link_url || w.link) && <a href={w.link_url || w.link} target="_blank" rel="noreferrer" className="text-red-400 hover:text-red-600 ml-2"><ExternalLink size={14}/></a>}
                   </div>
                 ))}
                 {partnerWishlistData.length === 0 && <p className="text-xs text-gray-400 italic">Chưa có gì</p>}
@@ -1625,18 +1680,18 @@ export default function Dashboard() {
                 {myWishlist.map(w => (
                   <div key={w.id} className="flex items-center justify-between bg-gray-50 p-2 rounded-xl border border-gray-100 group">
                     <div className="flex items-center gap-2 overflow-hidden">
-                      <input type="checkbox" checked={w.is_bought} onChange={() => toggleWishlistBought(w.id, w.is_bought, w.item_name)} className="h-4 w-4 accent-gray-500 flex-shrink-0" />
+                      <input type="checkbox" checked={w.is_bought} onChange={() => toggleWishlistBought(w.id, w.is_bought, w.item_name || w.title || 'Món đồ')} className="h-4 w-4 accent-gray-500 flex-shrink-0" />
                       <div className="flex flex-col overflow-hidden">
-                        <span className={`text-xs font-semibold truncate ${w.is_bought ? 'line-through text-gray-400' : 'text-gray-700'}`}>{w.item_name}</span>
+                        <span className={`text-xs font-semibold truncate ${w.is_bought ? 'line-through text-gray-400' : 'text-gray-700'}`}>{w.item_name || w.title}</span>
                         <div className="flex items-center gap-2">
-                          {w.price_estimate && <span className="text-[10px] text-gray-500">{Number(w.price_estimate).toLocaleString('vi-VN')} ₫</span>}
+                          {(w.price_estimate || w.price) && <span className="text-[10px] text-gray-500">{Number(w.price_estimate || w.price).toLocaleString('vi-VN')} ₫</span>}
                           <span className="text-[9px] text-gray-400">{formatDateTime24h(w.created_at)}</span>
                         </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 ml-2">
-                      {w.link_url && <a href={w.link_url} target="_blank" rel="noreferrer" className="text-gray-400 hover:text-gray-600"><ExternalLink size={14}/></a>}
-                      <button onClick={() => deleteWishlist(w.id, w.item_name)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button>
+                      {(w.link_url || w.link) && <a href={w.link_url || w.link} target="_blank" rel="noreferrer" className="text-gray-400 hover:text-gray-600"><ExternalLink size={14}/></a>}
+                      <button onClick={() => deleteWishlist(w.id, w.item_name || w.title || 'Món đồ')} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><Trash2 size={14}/></button>
                     </div>
                   </div>
                 ))}
